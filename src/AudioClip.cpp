@@ -359,6 +359,21 @@ void AudioClip::resumePlayback(ModelStackWithTimelineCounter* modelStack, bool m
 		numericDriver.freezeWithError("E430");
 #endif
 
+	// CBC experiment ...
+	//
+	//	 So this function is called at song loop reset, so
+	//	 if loop time-stretching is disabled we should have individual clips happily
+	//	 looping at their own loop-length.
+	//
+	//	/
+	if (modelStack->song->timeStretchDisabled) return;
+	if (!sampleControls.timeStretchEnabled) {
+		/* let's see if this method is called when expected */
+		numericDriver.freezeWithError("E777");
+		return;
+	}
+	// END CBC test
+
 	if (!sampleHolder.audioFile || ((Sample*)sampleHolder.audioFile)->unplayable) return;
 
 	// If reading or writing cache, that's not gonna be valid now that we've moved our play position, so gotta stop that.
