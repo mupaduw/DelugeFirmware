@@ -687,6 +687,12 @@ doReSyncToSongTicks:
 				// For AudioClips, even if we're not gonna call resumePlayback(), we still need to do some other stuff if length has been changed (which it probably has if we're here)
 doAudioClipStuff:
 				if (clip->type == CLIP_TYPE_AUDIO) {
+					// CBC experiment ...
+					if (!((AudioClip*)clip)->sampleControls.timeStretchEnabled) {
+						/* let's see if this method is called when expected */
+						numericDriver.freezeWithError("E778"); //in ReSyncClip
+					}
+					// END CBC test
 					((AudioClip*)clip)->setupPlaybackBounds();
 					((AudioClip*)clip)->sampleZoneChanged(modelStack);
 				}
@@ -1735,6 +1741,22 @@ void Session::resetPlayPos(int32_t newPos, bool doingComplete, int buttonPressLa
 
 yeahNahItsOn:
 			ModelStackWithTimelineCounter* modelStackWithTimelineCounter = modelStack->addTimelineCounter(clip);
+
+			// CBC experiment ...
+			//
+			//
+			if (clip->type == CLIP_TYPE_AUDIO) {
+				AudioClip* audio_clip = (AudioClip*)clip;
+				if (!audio_clip->sampleControls.timeStretchEnabled && modelStack->song->timeStretchDisabled) {
+					// char text[15] = "p ";
+					// intToString(newPos, text);
+					/* let's see if this method is called when expected */
+					// numericDriver.displayPopup(text);
+					// TEST RES: required user <Play>
+					// numericDriver.freezeWithError("E781"); //in Clip.resetPlayPos
+					//	return;
+				}
+			}
 
 			clip->setPos(modelStackWithTimelineCounter, newPos, true);
 

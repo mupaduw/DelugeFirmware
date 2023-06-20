@@ -47,6 +47,7 @@
 
 extern "C" {
 #include "sio_char.h"
+#include "cfunctions.h"
 extern uint8_t currentlyAccessingCard;
 }
 
@@ -283,6 +284,15 @@ void AudioClip::processCurrentPos(ModelStackWithTimelineCounter* modelStack, uin
 			// If already had a VoiceSample, everything's probably all fine...
 			if (voiceSample) {
 
+//
+//				if (!sampleControls.timeStretchEnabled) {
+//					/* let's see if this method is called when expected */
+////					numericDriver.freezeWithError("E792");
+//					goto possiblyResetEnvelopeAndGetOut;
+//				}
+//				// CBC experiment ...
+
+
 				// But, if it's reading from (or writing to) a cache, we have to manually cut it out right now and tell it to restart, so the new
 				// play-through will remain perfectly synced up to this start-tick we're at now.
 				if (voiceSample->cache
@@ -300,12 +310,26 @@ void AudioClip::processCurrentPos(ModelStackWithTimelineCounter* modelStack, uin
 					// Yup, do that unassignment
 doUnassignment:
 					voiceSample->beenUnassigned();
+					// CBC experiment ...
+					if (modelStack->song->timeStretchDisabled) {
+						numericDriver.displayPopup("UASG");
+					}
 				}
 
 				// Or if none of those several conditions were met...
 				else {
 					// If here, we know time stretching is on.
-
+					// CBC experiment ...
+					if (modelStack->song->timeStretchDisabled) {
+						char text[15];
+						strcpy(text, "p ");
+						intToString(lastProcessedPos, &text[2], 8);
+						/* let's see if this method is called when expected */
+						// numericDriver.freezeWithError("E780"); // in Clip.setPos
+						numericDriver.displayPopup(text);
+						shouldResetEnvelope = true;
+						goto possiblyResetEnvelopeAndGetOut;
+					}
 					// If no pre-margin, then still do go and do the unassignment and start afresh - cos we'll wanna hear that sharp start-point perfectly rather than just fading into it after a play-head reaches its end
 					uint32_t waveformStartByte = ((Sample*)sampleHolder.audioFile)->audioDataStartPosBytes;
 					if (sampleControls.reversed)
@@ -327,6 +351,7 @@ doUnassignment:
 
 					goto possiblyResetEnvelopeAndGetOut;
 				}
+
 			}
 
 			// Otherwise, get a new VoiceSample
@@ -446,18 +471,9 @@ void AudioClip::sampleZoneChanged(ModelStackWithTimelineCounter const* modelStac
 	if (voiceSample) {
 		// CBC experiment ...
 		//
-		//	 So this function is called at song loop reset, so
-		//	 if loop time-stretching is disabled we should have individual clips happily
-		//	 looping at their own loop-length.
+		//	is this function is called at song loop reset, NO
 		//
-		//	/
 		// END CBC test
-		if (sampleControls.timeStretchEnabled) {
-			/* let's see if this method is called when expected */
-			numericDriver.freezeWithError("E777");
-			return;
-		}
-		if (modelStack->song->timeStretchDisabled) return;
 
 		int priorityRating = 1; // probably better fix this...
 

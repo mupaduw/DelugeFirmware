@@ -338,6 +338,24 @@ void Clip::setPos(ModelStackWithTimelineCounter* modelStack, int32_t newPos, boo
 
 	lastProcessedPos = newPos;
 
+	// CBC experiment ...
+	//
+	//	 So we're here at song loop start and whenever loop reset, so
+	//
+	if (this->type == CLIP_TYPE_AUDIO) {
+		if (!((AudioClip*)this)->sampleControls.timeStretchEnabled && !modelStack->song->timeStretchDisabled) {
+			//			char text[15] = "p ";
+			//			intToString(newPos, text);
+			/* let's see if this method is called when expected */
+			// TEST RES: required user <Play>
+			// numericDriver.freezeWithError("E780"); // in Clip.setPos
+			//	numericDriver.displayPopup(text);
+			//	return;
+		}
+	}
+	//	if (modelStack->song->timeStretchDisabled) return;
+	// END CBC test
+
 	expectEvent(); // Remember, this is a virtual function call - extended in InstrumentClip
 }
 
