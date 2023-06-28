@@ -2089,7 +2089,6 @@ void getNoteLengthNameFromMagnitude(char* text, int32_t magnitude, bool clarifyP
 		char* writePos = strchr(text, 0);
 		char const* suffix = (*(writePos - 1) == '2') ? "nd" : "th";
 		strcpy(writePos, suffix);
-		strcpy(writePos + 2, "-notes");
 	}
 	else {
 		uint32_t numBars = (uint32_t)1 << magnitude;
