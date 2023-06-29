@@ -1,10 +1,17 @@
 on:
   push:
     branches:
+      - 'main'
       - 'community'
+
   pull_request:
     branches:
+      - 'main'
       - 'community'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+ 
 jobs:
   formatting-check:
     name: Formatting Check
