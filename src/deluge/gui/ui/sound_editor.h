@@ -44,6 +44,7 @@ class ModControllableAudio;
 class ModelStackWithThreeMainThings;
 class AudioFileHolder;
 class MIDIDevice;
+class Song;
 
 class SoundEditor final : public UI {
 public:
@@ -104,6 +105,7 @@ public:
 	bool pitchBendReceived(MIDIDevice* fromDevice, uint8_t channel, uint8_t data1, uint8_t data2);
 	void selectEncoderAction(int8_t offset);
 	bool canSeeViewUnderneath() { return true; }
+	bool setupSongMenu(Song* song = NULL);
 	bool setup(Clip* clip = NULL, const MenuItem* item = NULL, int sourceIndex = 0);
 	void blinkShortcut();
 	int potentialShortcutPadAction(int x, int y, bool on);

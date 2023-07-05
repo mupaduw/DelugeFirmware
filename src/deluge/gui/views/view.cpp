@@ -119,6 +119,7 @@ extern int pendingGlobalMIDICommandNumClustersWritten;
 int View::buttonAction(int x, int y, bool on, bool inCardRoutine) {
 
 	int newGlobalMidiCommand;
+	uartPrintln("> View.buttonAction() ");
 
 	// Tap tempo button. Shouldn't move this to MatrixDriver, because this code can put us in tapTempo mode, and other UIs aren't built to
 	// handle this
@@ -297,9 +298,11 @@ doEndMidiLearnPressSession:
 				// show the user the new value with a PopUp message
 				if (currentSong->timeStretchEnabled) {
 					numericDriver.displayPopup(HAVE_OLED ? "Time-stretch: On" : "TSON", 2);
+					uartPrintln("Time-stretch: On");
 				}
 				else {
 					numericDriver.displayPopup(HAVE_OLED ? "Time-stretch: Off" : "TSOF", 2);
+					uartPrintln("Time-stretch: Off");
 				}
 			}
 		}
@@ -392,8 +395,8 @@ possiblyRevert:
 	}
 #endif
 
-	// Select button with shift - go to settings menu
-	else if (x == selectEncButtonX && y == selectEncButtonY && Buttons::isShiftButtonPressed()) {
+	// Select button go to song menu
+	else if (x == selectEncButtonX && y == selectEncButtonY ) {
 		if (on && currentUIMode == UI_MODE_NONE) {
 
 			if (playbackHandler.recording == RECORDING_ARRANGEMENT) {
@@ -403,11 +406,23 @@ possiblyRevert:
 
 			if (inCardRoutine) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
 
-			numericDriver.setNextTransitionDirection(1);
-			soundEditor.setup();
-			openUI(&soundEditor);
+			// Select button with shift - go to settings menu
+			if (Buttons::isShiftButtonPressed()) {
+				uartPrintln(">>> View.buttonAction() to settings menu");
+				numericDriver.setNextTransitionDirection(1);
+				soundEditor.setup();
+				openUI(&soundEditor);
+			}
+			else {
+				// Select button with sessionView - go to song menu
+				uartPrintln(">>> View.buttonAction() to song menu");
+				numericDriver.setNextTransitionDirection(1);
+				soundEditor.setupSongMenu(currentSong);
+				openUI(&soundEditor);
+			}
 		}
 	}
+
 	else return ACTION_RESULT_NOT_DEALT_WITH;
 
 	return ACTION_RESULT_DEALT_WITH;

@@ -358,6 +358,12 @@ moveAfterClipInstance:
 						uiNeedsRendering(this, 0, 0xFFFFFFFF);
 					}
 				}
+				else {
+					// Song menu deferred to next handler
+					uartPrintln(">>> session_view.buttonAction(selectEncButton - no playback)"); // CBC need to resolve this conflict
+					goto notDealtWith;
+				}
+
 			}
 		}
 	}

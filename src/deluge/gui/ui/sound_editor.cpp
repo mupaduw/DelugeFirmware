@@ -1936,6 +1936,8 @@ public:
 
 MenuItemSubmenu settingsRootMenu;
 
+MenuItemSubmenu songMenu;
+
 #if HAVE_OLED
 char cvTransposeTitle[] = "CVx transpose";
 char cvVoltsTitle[] = "CVx V/octave";
@@ -2590,6 +2592,13 @@ SoundEditor::SoundEditor() {
 	                                            &firmwareVersionMenu,
 	                                            NULL};
 	new (&settingsRootMenu) MenuItemSubmenu("Settings", rootSettingsMenuItems);
+
+	// Song menu CBC
+	static MenuItem* songMenuItems[] = {&runtimeFeatureSettingsMenu,
+										&firmwareVersionMenu,
+										NULL};
+
+	new (&songMenu) MenuItemSubmenu("Song", songMenuItems);
 
 	// CV menu
 	new (&cvVoltsMenu) MenuItemCVVolts("Volts per octave");
@@ -3849,6 +3858,21 @@ void SoundEditor::modEncoderAction(int whichModEncoder, int offset) {
 	// Otherwise, send the action to the Editor as usual
 	else UI::modEncoderAction(whichModEncoder, offset);
 }
+
+bool SoundEditor::setupSongMenu(Song* song) {
+
+	// CBC testing
+	MenuItem* newItem;
+	newItem = &songMenu;
+	navigationDepth = 0;
+	shouldGoUpOneLevelOnBegin = false;
+	menuItemNavigationRecord[navigationDepth] = newItem;
+	uartPrintln(">> SoundEditor::setupSongMenu()"); // CBC
+
+	numericDriver.setNextTransitionDirection(1);
+	return true;
+}
+
 
 bool SoundEditor::setup(Clip* clip, const MenuItem* item, int sourceIndex) {
 
