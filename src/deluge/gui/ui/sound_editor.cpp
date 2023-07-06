@@ -2462,6 +2462,21 @@ public:
 	void writeCurrentValue() { FlashStorage::defaultBendRange[BEND_RANGE_MAIN] = soundEditor.currentValue; }
 } defaultBendRangeMenu;
 
+
+// Song Menu
+
+// The Timestretch on/off menu for the song.
+class MenuItemSongTimeStretchEnabled final : public MenuItemSelection {
+public:
+	MenuItemSongTimeStretchEnabled(char const* newName = NULL) : MenuItemSelection(newName) {}
+	void readCurrentValue() {
+		soundEditor.currentValue = currentSong->timeStretchEnabled;
+	}
+	void writeCurrentValue() {
+		currentSong->timeStretchEnabled = soundEditor.currentValue;
+	}
+} songTimeStretchEnabledMenu;
+
 SoundEditor soundEditor{};
 
 SoundEditor::SoundEditor() {
@@ -2593,12 +2608,6 @@ SoundEditor::SoundEditor() {
 	                                            NULL};
 	new (&settingsRootMenu) MenuItemSubmenu("Settings", rootSettingsMenuItems);
 
-	// Song menu CBC
-	static MenuItem* songMenuItems[] = {&runtimeFeatureSettingsMenu,
-										&firmwareVersionMenu,
-										NULL};
-
-	new (&songMenu) MenuItemSubmenu("Song", songMenuItems);
 
 	// CV menu
 	new (&cvVoltsMenu) MenuItemCVVolts("Volts per octave");
@@ -2640,6 +2649,13 @@ SoundEditor::SoundEditor() {
 	runtimeFeatureSettingsMenu.basicTitle = "Community fts.";
 	firmwareVersionMenu.basicTitle = "Firmware ver.";
 #endif
+
+	// Song menu CBC
+	new (&songTimeStretchEnabledMenu ) MenuItemSongTimeStretchEnabled(HAVE_OLED ? "Time Stretch" : "STRETCH"); //CBC
+	static MenuItem* songMenuItems[] = {&songTimeStretchEnabledMenu,
+										NULL};
+
+	new (&songMenu) MenuItemSubmenu("Song", songMenuItems);
 
 	// Sound editor menu -----------------------------------------------------------------------------
 
