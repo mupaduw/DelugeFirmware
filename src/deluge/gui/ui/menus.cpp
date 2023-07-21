@@ -13,6 +13,7 @@
 #include "gui/menu_item/audio_clip/mod_fx/type.h"
 #include "gui/menu_item/audio_clip/reverse.h"
 #include "gui/menu_item/audio_clip/sample_marker_editor.h"
+#include "gui/menu_item/audio_clip/time_stretch.h"
 #include "gui/menu_item/audio_clip/transpose.h"
 #include "gui/menu_item/bend_range.h"
 #include "gui/menu_item/bend_range/main.h"
@@ -438,13 +439,19 @@ sequence::Direction sequenceDirectionMenu{HAVE_OLED ? "Play direction" : "DIRECT
 // AudioClip stuff ---------------------------------------------------------------------------
 
 // Sample Menu
+
+audio_clip::TimeStretch audioClipTimeStretchMenu{HAVE_OLED ? "Timestretch" : "STRETCH"};
 audio_clip::Reverse audioClipReverseMenu{"REVERSE"};
 audio_clip::SampleMarkerEditor audioClipSampleMarkerEditorMenuStart{"", MARKER_START};
 audio_clip::SampleMarkerEditor audioClipSampleMarkerEditorMenuEnd{"WAVEFORM", MARKER_END};
 
-MenuItem* audioClipSampleMenuItems[] = {&fileSelectorMenu,     &audioClipReverseMenu,
-                                        &samplePitchSpeedMenu, &audioClipSampleMarkerEditorMenuEnd,
-                                        &interpolationMenu,    NULL};
+MenuItem* audioClipSampleMenuItems[] = {&fileSelectorMenu,
+                                        &audioClipTimeStretchMenu,
+                                        &audioClipReverseMenu,
+                                        &samplePitchSpeedMenu,
+                                        &audioClipSampleMarkerEditorMenuEnd,
+                                        &interpolationMenu,
+                                        NULL};
 Submenu audioClipSampleMenu{"SAMPLE", audioClipSampleMenuItems};
 
 // LPF Menu
@@ -777,8 +784,8 @@ MenuItem* paramShortcutsForSounds[][8] = {
     {&delayRateMenu, &delaySyncMenu, &delayAnalogMenu, &delayFeedbackMenu, &delayPingPongMenu, NULL, NULL, NULL}};
 
 MenuItem* paramShortcutsForAudioClips[][8] = {
-    {NULL, &audioClipReverseMenu, NULL, &samplePitchSpeedMenu, NULL, &fileSelectorMenu, &interpolationMenu,
-     &audioClipSampleMarkerEditorMenuEnd},
+    {&audioClipTimeStretchMenu, &audioClipReverseMenu, NULL, &samplePitchSpeedMenu, NULL, &fileSelectorMenu,
+     &interpolationMenu, &audioClipSampleMarkerEditorMenuEnd},
     {NULL, &audioClipReverseMenu, NULL, &samplePitchSpeedMenu, NULL, &fileSelectorMenu, &interpolationMenu,
      &audioClipSampleMarkerEditorMenuEnd},
     {&audioClipLevelMenu, &audioClipTransposeMenu, NULL, NULL, NULL, NULL, NULL, NULL},

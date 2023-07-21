@@ -27,4 +27,5 @@ public:
 	uint8_t interpolationMode;
 	bool pitchAndSpeedAreIndependent;
 	bool reversed;
+	bool timeStretchEnabled;
 };
