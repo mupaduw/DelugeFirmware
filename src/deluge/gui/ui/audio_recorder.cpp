@@ -25,7 +25,7 @@
 #include "processing/sound/sound_drum.h"
 #include "gui/ui/audio_recorder.h"
 #include "storage/storage_manager.h"
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 #include "dsp/stereo_sample.h"
 #include "gui/ui/sound_editor.h"
 #include "hid/display/numeric_driver.h"
@@ -83,7 +83,9 @@ bool AudioRecorder::opened() {
 	actionLogger.deleteAllLogs();
 
 	// If we're already recording (probably the output) then no!
-	if (recordingSource) return false;
+	if (recordingSource) {
+		return false;
+	}
 
 	// If recording for a Drum, set the name of the Drum
 	if (currentSong->currentClip->output->type == INSTRUMENT_TYPE_KIT) {
@@ -99,7 +101,9 @@ gotError:
 		}
 
 		error = kit->makeDrumNameUnique(&newName, 1);
-		if (error) goto gotError;
+		if (error) {
+			goto gotError;
+		}
 
 		drum->name.set(&newName);
 	}
@@ -114,20 +118,22 @@ gotError:
 		soundEditor.setupShortcutBlink(soundEditor.currentSourceIndex, 4, 0);
 		soundEditor.blinkShortcut();
 
-		IndicatorLEDs::setLedState(synthLedX, synthLedY, !soundEditor.editingKit());
-		IndicatorLEDs::setLedState(kitLedX, kitLedY, soundEditor.editingKit());
-		IndicatorLEDs::setLedState(crossScreenEditLedX, crossScreenEditLedY, false);
-		IndicatorLEDs::setLedState(sessionViewLedX, sessionViewLedY, false);
-		IndicatorLEDs::setLedState(scaleModeLedX, scaleModeLedY, false);
-		IndicatorLEDs::blinkLed(backLedX, backLedY);
-		IndicatorLEDs::blinkLed(recordLedX, recordLedY, 255, 1);
+		indicator_leds::setLedState(IndicatorLED::SYNTH, !soundEditor.editingKit());
+		indicator_leds::setLedState(IndicatorLED::KIT, soundEditor.editingKit());
+		indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, false);
+		indicator_leds::setLedState(IndicatorLED::SESSION_VIEW, false);
+		indicator_leds::setLedState(IndicatorLED::SCALE_MODE, false);
+		indicator_leds::blinkLed(IndicatorLED::BACK);
+		indicator_leds::blinkLed(IndicatorLED::RECORD, 255, 1);
 #if !HAVE_OLED
 		numericDriver.setNextTransitionDirection(0);
 		numericDriver.setText("REC", false, 255, true);
 #endif
 	}
 
-	if (currentUIMode == UI_MODE_AUDITIONING) instrumentClipView.cancelAllAuditioning();
+	if (currentUIMode == UI_MODE_AUDITIONING) {
+		instrumentClipView.cancelAllAuditioning();
+	}
 
 	return success;
 }
@@ -140,7 +146,9 @@ void AudioRecorder::renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]) {
 
 bool AudioRecorder::setupRecordingToFile(int newMode, int newNumChannels, int folderID) {
 
-	if (ALPHA_OR_BETA_VERSION && recordingSource) numericDriver.freezeWithError("E242");
+	if (ALPHA_OR_BETA_VERSION && recordingSource) {
+		numericDriver.freezeWithError("E242");
+	}
 
 	recorder = AudioEngine::getNewRecorder(newNumChannels, folderID, newMode, INTERNAL_BUTTON_PRESS_LATENCY);
 	if (!recorder) {
@@ -159,7 +167,7 @@ bool AudioRecorder::beginOutputRecording() {
 	bool success = setupRecordingToFile(AUDIO_INPUT_CHANNEL_OUTPUT, 2, AUDIO_RECORDING_FOLDER_RESAMPLE);
 
 	if (success) {
-		IndicatorLEDs::blinkLed(recordLedX, recordLedY, 255, 1);
+		indicator_leds::blinkLed(IndicatorLED::RECORD, 255, 1);
 	}
 
 	AudioEngine::bypassCulling =
@@ -187,7 +195,7 @@ void AudioRecorder::endRecordingSoon(int buttonLatency) {
 void AudioRecorder::slowRoutine() {
 	if (recordingSource == AUDIO_INPUT_CHANNEL_OUTPUT) {
 		if (recorder->status >= RECORDER_STATUS_COMPLETE) {
-			IndicatorLEDs::setLedState(recordLedX, recordLedY, (playbackHandler.recording == RECORDING_NORMAL));
+			indicator_leds::setLedState(IndicatorLED::RECORD, (playbackHandler.recording == RECORDING_NORMAL));
 			finishRecording();
 		}
 	}
@@ -257,17 +265,24 @@ void AudioRecorder::finishRecording() {
 #endif
 }
 
-int AudioRecorder::buttonAction(int x, int y, bool on, bool inCardRoutine) {
-	if (!on) return ACTION_RESULT_NOT_DEALT_WITH;
+int AudioRecorder::buttonAction(hid::Button b, bool on, bool inCardRoutine) {
+	using namespace hid::button;
+
+	if (!on) {
+		return ACTION_RESULT_NOT_DEALT_WITH;
+	}
 
 	// We don't actually wrap up recording here, because this could be in fact called from the SD writing routines as they wait - that'd be a tangle.
-	if ((x == backButtonX && y == backButtonY) || (x == selectEncButtonX && y == selectEncButtonY)
-	    || (x == recordButtonX && y == recordButtonY)) {
+	if ((b == BACK) || (b == SELECT_ENC) || (b == RECORD)) {
 
-		if (inCardRoutine) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		if (inCardRoutine) {
+			return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
 		endRecordingSoon(INTERNAL_BUTTON_PRESS_LATENCY);
 	}
-	else return ACTION_RESULT_NOT_DEALT_WITH;
+	else {
+		return ACTION_RESULT_NOT_DEALT_WITH;
+	}
 
 	return ACTION_RESULT_DEALT_WITH;
 }

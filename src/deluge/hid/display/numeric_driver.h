@@ -15,8 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef NUMERICDRIVER_H
-#define NUMERICDRIVER_H
+#pragma once
 
 #include "definitions.h"
 
@@ -49,6 +48,7 @@ public:
 	void render();
 	void displayLoadingAnimation(bool delayed = false, bool transparent = false);
 	bool isLayerCurrentlyOnTop(NumericLayer* layer);
+	uint8_t lastDisplay[NUMERIC_DISPLAY_LENGTH];
 #endif
 
 	bool popupActive;
@@ -80,5 +80,3 @@ void displayPopupIfAllBootedUp(char const* text);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // NUMERICDRIVER_H

@@ -32,7 +32,7 @@
 #include "model/sample/sample_holder.h"
 #include "model/sample/sample_playback_guide.h"
 #include "playback/playback_handler.h"
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 
 #define MEASURE_HOP_END_PERFORMANCE 0
 
@@ -42,7 +42,7 @@ bool TimeStretcher::init(Sample* sample, VoiceSample* voiceSample, SamplePlaybac
 
 	AudioEngine::logAction("TimeStretcher::init");
 
-	//Uart::println("TimeStretcher::init");
+	//Debug::println("TimeStretcher::init");
 
 	for (int l = 0; l < NUM_CLUSTERS_LOADED_AHEAD; l++) {
 		clustersForPercLookahead[l] = NULL;
@@ -99,17 +99,22 @@ bool TimeStretcher::init(Sample* sample, VoiceSample* voiceSample, SamplePlaybac
 		    guide->getBytePosToStartPlayback(true) - fudgingNumSamplesTilLoop * bytesPerSample * playDirection;
 
 		int32_t startByte = sample->audioDataStartPosBytes;
-		if (playDirection != 1)
+		if (playDirection != 1) {
 			startByte +=
 			    sample->audioDataLengthBytes
 			    - bytesPerSample; // The actual first sample of the waveform in our given direction, regardless of our elected start-point
+		}
 
 		// If there's actually some waveform where we propose to start, do it!
 		if ((newBytePos - startByte) * playDirection >= 0) {}
-		else return false; // Shouldn't happen
+		else {
+			return false; // Shouldn't happen
+		}
 
 		bool success = setupNewPlayHead(sample, voiceSample, guide, newBytePos, 0, priorityRating, loopingType);
-		if (!success) return false;
+		if (!success) {
+			return false;
+		}
 
 		samplesTilHopEnd = 2147483647; // We don't want to do a hop-end
 
@@ -162,7 +167,9 @@ void TimeStretcher::beenUnassigned() {
 	unassignAllReasonsForPercLookahead();
 	unassignAllReasonsForPercCacheClusters();
 	olderPartReader.unassignAllReasons();
-	if (buffer) generalMemoryAllocator.dealloc(buffer);
+	if (buffer) {
+		generalMemoryAllocator.dealloc(buffer);
+	}
 }
 
 void TimeStretcher::unassignAllReasonsForPercLookahead() {
@@ -245,8 +252,8 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 
 	/*
 	if (numTimesMissedHop) {
-		Uart::print("missed ");
-		Uart::println(numTimesMissedHop);
+		Debug::print("missed ");
+		Debug::println(numTimesMissedHop);
 	}
 	*/
 
@@ -267,8 +274,8 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 
 	int32_t oldHeadBytePos;
 
-	//Uart::println("");
-	//Uart::println("hopEnd ------");
+	//Debug::println("");
+	//Debug::println("hopEnd ------");
 
 	olderHeadReadingFromBuffer = false;
 	oldHeadBytePos = voiceSample->getPlayByteLowLevel(sample, guide, true);
@@ -329,8 +336,12 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 
 	// Or if outside of that...
 	else {
-		if (speedLog > (896 << 20)) speedLog = (896 << 20);
-		else if (speedLog < (768 << 20)) speedLog = (768 << 20);
+		if (speedLog > (896 << 20)) {
+			speedLog = (896 << 20);
+		}
+		else if (speedLog < (768 << 20)) {
+			speedLog = (768 << 20);
+		}
 
 		int position = speedLog - (768 << 20);
 
@@ -342,8 +353,8 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 		//lookahead = interpolateTableSigned(position, 27, lookaheadCoarse, 2) >> 16;
 	}
 
-	//Uart::print("maxBeamWidth: ");
-	//Uart::println(maxBeamWidth);
+	//Debug::print("maxBeamWidth: ");
+	//Debug::println(maxBeamWidth);
 
 	/*
 	minBeamWidth = storageManager.devVarA * 10;
@@ -365,10 +376,11 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 	int32_t additionalOscPos = 0;
 
 	int32_t waveformStartByte = sample->audioDataStartPosBytes;
-	if (playDirection != 1)
+	if (playDirection != 1) {
 		waveformStartByte +=
 		    sample->audioDataLengthBytes
 		    - bytesPerSample; // The actual first sample of the waveform in our given direction, regardless of our elected start-point
+	}
 
 	// If this is for some looping piece of audio (possibly an AudioClip, but also a looping instrument sample or something,
 	// see if we want to place our next hop in the pre-margin.
@@ -400,10 +412,11 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 				if (outputSamplesTilLoop < ANTI_CLICK_CROSSFADE_LENGTH) {
 
 					int numSamplesIntoPreMarginToStartSource = outputSamplesTilLoop;
-					if (phaseIncrement != 16777216)
+					if (phaseIncrement != 16777216) {
 						numSamplesIntoPreMarginToStartSource =
 						    (((uint64_t)sourceSamplesTilLoop << 24) + (timeStretchRatio >> 1))
 						    / timeStretchRatio; // Round
+					}
 
 					newHeadBytePos = guide->getBytePosToStartPlayback(true)
 					                 - numSamplesIntoPreMarginToStartSource * bytesPerSample * playDirection;
@@ -426,15 +439,19 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 
 						hasLoopedBackIntoPreMargin = true;
 
-						//Uart::print("did special crossfade of length ");
-						//Uart::println(crossfadeLengthSamples);
+						//Debug::print("did special crossfade of length ");
+						//Debug::println(crossfadeLengthSamples);
 
 						// If there's a cache, we can't move a bit sideways to phase-align,
 						// cos our new play-head needs to remain perfectly aligned with the start of the cache.
-						if (voiceSample->cache) goto skipSearch;
+						if (voiceSample->cache) {
+							goto skipSearch;
 
-						// Otherwise, if no cache, we totally do want to do that.
-						else goto skipPercStuff;
+							// Otherwise, if no cache, we totally do want to do that.
+						}
+						else {
+							goto skipPercStuff;
+						}
 					}
 				}
 
@@ -445,7 +462,7 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 			}
 		}
 		else {
-			//Uart::println("TimeStretcher sees there's no pre-margin");
+			//Debug::println("TimeStretcher sees there's no pre-margin");
 		}
 	}
 
@@ -487,11 +504,11 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 				if (pixellatedBeamWidth) { // It might be zero near the start
 
 					if ((beamFrontEdge - latestPixellatedPos) * playDirection > 0) {
-						//Uart::println("hit front edge");
+						//Debug::println("hit front edge");
 						break;
 					}
 					if ((beamBackEdge - earliestPixellatedPos) * playDirection < 0) {
-						//Uart::println("hit back edge");
+						//Debug::println("hit back edge");
 						break;
 					}
 
@@ -538,18 +555,25 @@ bool TimeStretcher::hopEnd(SamplePlaybackGuide* guide, VoiceSample* voiceSample,
 		        : -1; // The actual last sample of the waveform in our given direction, regardless of our elected start-point
 
 		// Still must make sure we didn't go back beyond the start of the waveform, which can end up happening from the heavily pixellated search thing above
-		if ((int32_t)(beamBackEdge - waveformStartSample) * playDirection < 0) beamBackEdge = waveformStartSample;
+		if ((int32_t)(beamBackEdge - waveformStartSample) * playDirection < 0) {
+			beamBackEdge = waveformStartSample;
+		}
 
-		if (!olderPartReader.clusters[0]) Uart::println("No cluster!!!");
+		if (!olderPartReader.clusters[0]) {
+			Debug::println("No cluster!!!");
+		}
 
 		samplesTilHopEnd =
 		    ((uint64_t)bestBeamWidth << 24) / (uint32_t)phaseIncrement; // That's the beamWidthOnRepitchedWaveform
-		if (samplesTilHopEnd < 1)
+		if (samplesTilHopEnd < 1) {
 			samplesTilHopEnd = 1; // Can happen if pitch up very high and also time-stretch sped up a lot
+		}
 
 		crossfadeLengthSamples =
 		    multiply_32x32_rshift32_rounded(samplesTilHopEnd, crossfadeProportional) + crossfadeAbsolute * 4;
-		if (crossfadeLengthSamples >= (samplesTilHopEnd >> 1)) crossfadeLengthSamples = (samplesTilHopEnd >> 1);
+		if (crossfadeLengthSamples >= (samplesTilHopEnd >> 1)) {
+			crossfadeLengthSamples = (samplesTilHopEnd >> 1);
+		}
 
 		samplesTilHopEnd -= crossfadeLengthSamples;
 
@@ -586,18 +610,24 @@ skipPercStuff:
 		bool success;
 
 		int32_t oldHeadTotals[TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES];
-		if (oldHeadBytePos < (int32_t)sample->audioDataStartPosBytes)
+		if (oldHeadBytePos < (int32_t)sample->audioDataStartPosBytes) {
 			goto skipSearch; // Would probably be possible on a pitch-adjusted reversed waveform if we'd got past the end and were "buffering zeros"
+		}
 		success = sample->getAveragesForCrossfade(oldHeadTotals, oldHeadBytePos, crossfadeLengthSamplesSource,
 		                                          playDirection, lengthToAverageEach);
-		if (!success) goto skipSearch;
+		if (!success) {
+			goto skipSearch;
+		}
 
 		int32_t newHeadTotals[TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES];
-		if (ALPHA_OR_BETA_VERSION && newHeadBytePos < (int32_t)sample->audioDataStartPosBytes)
+		if (ALPHA_OR_BETA_VERSION && newHeadBytePos < (int32_t)sample->audioDataStartPosBytes) {
 			numericDriver.freezeWithError("E285");
+		}
 		success = sample->getAveragesForCrossfade(newHeadTotals, newHeadBytePos, crossfadeLengthSamplesSource,
 		                                          playDirection, lengthToAverageEach);
-		if (!success) goto skipSearch;
+		if (!success) {
+			goto skipSearch;
+		}
 
 		int32_t bestDifferenceAbs = getTotalDifferenceAbs(oldHeadTotals, newHeadTotals);
 		int32_t bestOffset = 0;
@@ -628,8 +658,8 @@ skipPercStuff:
 		    (sample->sampleRate / 45)
 		    >> 1; // Allow tracking down to around 45Hz, at input. We >>1 again because this limit is just for searching in one direction, and we're going to do both directions.
 		maxSearchSize = getMin(maxSearchSize, limit);
-		//Uart::print("max search length: ");
-		//Uart::println(maxSearchSize);
+		//Debug::print("max search length: ");
+		//Debug::println(maxSearchSize);
 
 		int numFullDirectionsSearched = 0;
 		int timesSignFlipped = 0;
@@ -679,11 +709,15 @@ startSearch:
 				        ? (sample->audioDataStartPosBytes + sample->audioDataLengthBytes - readByte[i])
 				        : readByte[i] - ((int32_t)sample->audioDataStartPosBytes - bytesPerSample);
 
-				if (bytesTilWaveformEnd <= 0) goto searchNextDirection;
+				if (bytesTilWaveformEnd <= 0) {
+					goto searchNextDirection;
+				}
 
 				int whichCluster = readByte[i] >> audioFileManager.clusterSizeMagnitude;
 				Cluster* cluster = sample->clusters.getElement(whichCluster)->cluster;
-				if (!cluster || !cluster->loaded) goto skipSearch;
+				if (!cluster || !cluster->loaded) {
+					goto skipSearch;
+				}
 
 				int bytePosWithinCluster = readByte[i] & (audioFileManager.clusterSize - 1);
 
@@ -768,17 +802,21 @@ entryPoint:
 						uint32_t lastTotalDifferenceAbs = std::abs(lastTotalChange);
 						additionalOscPos = ((uint64_t)lastTotalDifferenceAbs << 24)
 						                   / (uint32_t)(lastTotalDifferenceAbs + thisTotalDifferenceAbs);
-						if (searchDirectionRelativeToPlayDirection == -1)
+						if (searchDirectionRelativeToPlayDirection == -1) {
 							additionalOscPos = 16777216 - additionalOscPos;
-						if (thisOffsetIsBestMatch != (searchDirectionRelativeToPlayDirection == -1))
+						}
+						if (thisOffsetIsBestMatch != (searchDirectionRelativeToPlayDirection == -1)) {
 							bestOffset -= bytesPerSample * playDirection;
+						}
 					}
 
 					// After sign has flipped a certain number of times (in total, including both search directions), we can be fairly sure we've found a good fit
 					// This needs to be 4. Any less, and we start getting lots of bad alignments - I did tests. But 4 sounds basically as good as no limit.
 					timesSignFlipped++;
 #if !MEASURE_HOP_END_PERFORMANCE
-					if (timesSignFlipped >= 4) goto stopSearch;
+					if (timesSignFlipped >= 4) {
+						goto stopSearch;
+					}
 #endif
 				}
 
@@ -796,7 +834,9 @@ entryPoint:
 searchNextDirection:
 		// Search the other direction if we haven't already
 		numFullDirectionsSearched++;
-		if (numFullDirectionsSearched < 2) goto restartSearchWithOtherDirection;
+		if (numFullDirectionsSearched < 2) {
+			goto restartSearchWithOtherDirection;
+		}
 
 stopSearch:
 
@@ -813,8 +853,8 @@ stopSearch:
 		// The above is supposed to not go back beyond the start of the waveform, but there must be some bug because it does. Until I fix that,
 		// this check ensures we stay within the waveform
 		if ((newHeadBytePos - waveformStartByte) * playDirection < 0) {
-			Uart::println("avoided going before 0");
-			Uart::println(newHeadBytePos - waveformStartByte);
+			Debug::println("avoided going before 0");
+			Debug::println(newHeadBytePos - waveformStartByte);
 			newHeadBytePos = waveformStartByte;
 		}
 	}
@@ -827,62 +867,64 @@ skipSearch:
 	    && phaseIncrement != 16777216) {
 
 		if (!olderPartReader.clusters[0]) {
-			Uart::println("aaa");
+			Debug::println("aaa");
 		}
 
 		int32_t bytesBehind = (olderPartReader.getPlayByteLowLevel(sample, guide) - newHeadBytePos) * playDirection;
 
-		//Uart::print("bytesBehind: ");
-		//Uart::println(bytesBehind);
+		//Debug::print("bytesBehind: ");
+		//Debug::println(bytesBehind);
 
 		// Only proceed if newer head is earlier than older one
-		if (bytesBehind < 0) goto optForDirectReading;
+		if (bytesBehind < 0)
+			goto optForDirectReading;
 
 		uint32_t samplesBehind = (uint32_t)bytesBehind / (uint8_t)(sample->numChannels * sample->byteDepth);
 		int samplesBehindOnRepitchedWaveform = ((uint64_t)samplesBehind << 24) / (uint32_t)phaseIncrement;
 		int maxSamplesBehind = TIME_STRETCH_BUFFER_SIZE - (SSI_TX_BUFFER_NUM_SAMPLES - 1);
 
 		// Check we're not earlier by too much - which would usually be because we just looped
-		if (samplesBehindOnRepitchedWaveform > maxSamplesBehind) goto optForDirectReading;
+		if (samplesBehindOnRepitchedWaveform > maxSamplesBehind)
+			goto optForDirectReading;
 
 		if (bufferSamplesWritten < samplesBehindOnRepitchedWaveform) {
 
-			Uart::println("nope");
+			Debug::println("nope");
 
-			Uart::print("samplesBehindOnRepitchedWaveform: ");
-			Uart::println(samplesBehindOnRepitchedWaveform);
-			Uart::print("bufferSamplesWritten: ");
-			Uart::println(bufferSamplesWritten);
+			Debug::print("samplesBehindOnRepitchedWaveform: ");
+			Debug::println(samplesBehindOnRepitchedWaveform);
+			Debug::print("bufferSamplesWritten: ");
+			Debug::println(bufferSamplesWritten);
 			goto optForDirectReading;
 		}
 
-		//Uart::print("samplesBehindOnRepitchedWaveform: ");
-		//Uart::println(samplesBehindOnRepitchedWaveform);
+		//Debug::print("samplesBehindOnRepitchedWaveform: ");
+		//Debug::println(samplesBehindOnRepitchedWaveform);
 
 		if (!samplesBehindOnRepitchedWaveform) {
-			//Uart::println("new head reading non-buffered and writing to buffer");
+			//Debug::println("new head reading non-buffered and writing to buffer");
 			voiceSample->cloneFrom(&olderPartReader, false);
 			newerHeadReadingFromBuffer = false;
 			olderHeadReadingFromBuffer = true;
 			olderBufferReadPos = bufferWritePos; // TODO: is this right?
 			if (olderBufferReadPos != bufferWritePos)
-				Uart::println("aaaaaaaaaaaa!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+				Debug::println("aaaaaaaaaaaa!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 			bufferFillingMode = BUFFER_FILLING_NEWER;
 		}
 		else {
-			//Uart::println("new head reading buffered");
+			//Debug::println("new head reading buffered");
 			newerBufferReadPos =
 			    (uint32_t)(bufferWritePos - samplesBehindOnRepitchedWaveform) & (TIME_STRETCH_BUFFER_SIZE - 1);
 			newerHeadReadingFromBuffer = true;
-			//Uart::print("samples behind: ");
-			//Uart::println(samplesBehindOnRepitchedWaveform);
+			//Debug::print("samples behind: ");
+			//Debug::println(samplesBehindOnRepitchedWaveform);
 		}
 	}
 
 	// Or, set up reading directly from audio file Clusters
 	else {
 optForDirectReading:
-		//Uart::println("head reading non-buffered");
+		//Debug::println("head reading non-buffered");
 		newerHeadReadingFromBuffer = false;
 #endif
 
@@ -890,7 +932,7 @@ optForDirectReading:
 		    setupNewPlayHead(sample, voiceSample, guide, newHeadBytePos, additionalOscPos, priorityRating, loopingType);
 		if (!success) {
 
-			Uart::println("setupNewPlayHead failed. Sticking with old");
+			Debug::println("setupNewPlayHead failed. Sticking with old");
 
 			voiceSample->cloneFrom(&olderPartReader, true); // Steals all reasons back
 			playHeadStillActive[PLAY_HEAD_NEWER] = playHeadStillActive[PLAY_HEAD_OLDER];
@@ -902,7 +944,8 @@ optForDirectReading:
 
 #if TIME_STRETCH_ENABLE_BUFFER
 		// We've stopped writing to the buffer for now, but it might still be being read from
-		if (bufferFillingMode == BUFFER_FILLING_OLDER) bufferFillingMode = BUFFER_FILLING_NEITHER;
+		if (bufferFillingMode == BUFFER_FILLING_OLDER)
+			bufferFillingMode = BUFFER_FILLING_NEITHER;
 	}
 
 	int newBufferFillingMode = BUFFER_FILLING_NEWER; // Letting it fill from the older buffer initially caused problems
@@ -914,7 +957,7 @@ optForDirectReading:
 	    && !olderHeadReadingFromBuffer) { // olderHeadReadingFromBuffer will always be false - we set it above, at the start
 		generalMemoryAllocator.dealloc(buffer);
 		buffer = NULL;
-		Uart::println("abandoning buffer!!!!!!!!!!!!!!!!");
+		Debug::println("abandoning buffer!!!!!!!!!!!!!!!!");
 	}
 
 #endif
@@ -922,8 +965,8 @@ optForDirectReading:
 #if MEASURE_HOP_END_PERFORMANCE
 	uint16_t endTime = MTU2.TCNT_0;
 	uint16_t timeTaken = endTime - startTime;
-	Uart::print("hop end time: ");
-	Uart::println(timeTaken);
+	Debug::print("hop end time: ");
+	Debug::println(timeTaken);
 #endif
 
 	AudioEngine::logAction("/hopEnd");
@@ -934,18 +977,22 @@ optForDirectReading:
 bool TimeStretcher::setupNewPlayHead(Sample* sample, VoiceSample* voiceSample, SamplePlaybackGuide* guide,
                                      int newHeadBytePos, int additionalOscPos, int priorityRating, int loopingType) {
 	bool success = voiceSample->setupClustersForPlayFromByte(guide, sample, newHeadBytePos, priorityRating);
-	if (!success) return false;
+	if (!success) {
+		return false;
+	}
 
 	success = voiceSample->changeClusterIfNecessary(
 	    guide, sample, (loopingType == LOOP_LOW_LEVEL),
 	    priorityRating); // Set looping as false - change in June 2019. Pretty sure this is right...
-	if (!success) return false;
+	if (!success) {
+		return false;
+	}
 
 	voiceSample->interpolationBufferSizeLastTime = 0;
 	voiceSample->oscPos = additionalOscPos;
 	if (!voiceSample->clusters[0]) {
 		playHeadStillActive[PLAY_HEAD_NEWER] = false;
-		Uart::println("new no longer active");
+		Debug::println("new no longer active");
 	}
 
 	return true;
@@ -967,9 +1014,11 @@ void TimeStretcher::reassessWhetherToBeFillingBuffer(int32_t phaseIncrement, int
 
 				bufferWritePos = 0;
 				bufferSamplesWritten = 0;
-				Uart::println("setting up buffer !!!!!!!!!!!!!!!!");
-				if (bufferFillingMode == BUFFER_FILLING_OLDER) Uart::println(" - filling older");
-				else Uart::println(" - filling newer");
+				Debug::println("setting up buffer !!!!!!!!!!!!!!!!");
+				if (bufferFillingMode == BUFFER_FILLING_OLDER)
+					Debug::println(" - filling older");
+				else
+					Debug::println(" - filling newer");
 			}
 		}
 	}
@@ -982,7 +1031,7 @@ void TimeStretcher::reassessWhetherToBeFillingBuffer(int32_t phaseIncrement, int
 			bufferFillingMode = BUFFER_FILLING_OFF;
 			generalMemoryAllocator.dealloc(buffer);
 			buffer = NULL;
-			Uart::println("abandoning buffer!!!!!!!!!!!!!!!!");
+			Debug::println("abandoning buffer!!!!!!!!!!!!!!!!");
 		}
 	}
 }
@@ -1062,11 +1111,14 @@ void TimeStretcher::updateClustersForPercLookahead(Sample* sample, uint32_t sour
 		int nextClusterIndex = clusterIndex;
 		for (int l = 0; l < NUM_CLUSTERS_LOADED_AHEAD; l++) {
 			if (nextClusterIndex < sample->getFirstClusterIndexWithAudioData()
-			    || nextClusterIndex >= sample->getFirstClusterIndexWithNoAudioData())
+			    || nextClusterIndex >= sample->getFirstClusterIndexWithNoAudioData()) {
 				break; // If no more Clusters
+			}
 			clustersForPercLookahead[l] =
 			    sample->clusters.getElement(nextClusterIndex)->getCluster(sample, nextClusterIndex, CLUSTER_ENQUEUE);
-			if (!clustersForPercLookahead[l]) break;
+			if (!clustersForPercLookahead[l]) {
+				break;
+			}
 			nextClusterIndex += playDirection;
 		}
 	}
@@ -1082,7 +1134,9 @@ void TimeStretcher::setupCrossfadeFromCache(SampleCache* cache, int cacheBytePos
 
 	// If we've reached the end of what's been written to the cache...
 	int bytesTilCacheEnd = cache->writeBytePos - cacheBytePos;
-	if (bytesTilCacheEnd <= CACHE_BYTE_DEPTH * numChannels) return;
+	if (bytesTilCacheEnd <= CACHE_BYTE_DEPTH * numChannels) {
+		return;
+	}
 
 	int cachedClusterIndex = cacheBytePos >> audioFileManager.clusterSizeMagnitude;
 	int bytePosWithinCluster = cacheBytePos & (audioFileManager.clusterSize - 1);
@@ -1096,11 +1150,15 @@ void TimeStretcher::setupCrossfadeFromCache(SampleCache* cache, int cacheBytePos
 	int bytesTilCacheClusterEnd =
 	    audioFileManager.clusterSize - bytePosWithinCluster
 	    + (CACHE_BYTE_DEPTH * numChannels - 1); // Add one-byte-less-than-a-sample to it, so it'll round up
-	if (bytesTilCacheClusterEnd <= CACHE_BYTE_DEPTH * numChannels) return; // TODO: allow it go to the next Cluster
+	if (bytesTilCacheClusterEnd <= CACHE_BYTE_DEPTH * numChannels) {
+		return; // TODO: allow it go to the next Cluster
+	}
 
 	if (!buffer) {
 		bool success = allocateBuffer(numChannels);
-		if (!success) return;
+		if (!success) {
+			return;
+		}
 	}
 
 	// If we're really unlucky, allocating the buffer may have stolen from the cache
@@ -1118,13 +1176,17 @@ void TimeStretcher::setupCrossfadeFromCache(SampleCache* cache, int cacheBytePos
 	    / (uint8_t)(numChannels * CACHE_BYTE_DEPTH); // Will round up, cos we did that additional bit above
 #else
 	int samplesTilThisWindowEnd = bytesTilThisWindowEnd >> CACHE_BYTE_DEPTH_MAGNITUDE;
-	if (numChannels == 2) samplesTilThisWindowEnd >>= 1;
+	if (numChannels == 2)
+		samplesTilThisWindowEnd >>= 1;
 #endif
 
-	if (samplesTilThisWindowEnd < numSamplesThisCacheRead)
+	if (samplesTilThisWindowEnd < numSamplesThisCacheRead) {
 		numSamplesThisCacheRead = samplesTilThisWindowEnd; // Only do this after we're sure we're not cancelling caching
+	}
 
-	if (ALPHA_OR_BETA_VERSION && numSamplesThisCacheRead <= 0) numericDriver.freezeWithError("E179");
+	if (ALPHA_OR_BETA_VERSION && numSamplesThisCacheRead <= 0) {
+		numericDriver.freezeWithError("E179");
+	}
 
 	for (int i = 0; i < numSamplesThisCacheRead; i++) {
 
@@ -1144,8 +1206,8 @@ void TimeStretcher::setupCrossfadeFromCache(SampleCache* cache, int cacheBytePos
 	crossfadeIncrement = 16777216 / (uint16_t)numSamplesThisCacheRead + 1;
 	crossfadeProgress = 0;
 
-	//Uart::print("doing crossfade from cache, length: ");
-	//Uart::println(numSamplesThisCacheRead);
+	//Debug::print("doing crossfade from cache, length: ");
+	//Debug::println(numSamplesThisCacheRead);
 
 #if TIME_STRETCH_ENABLE_BUFFER
 	bufferWritePos = TIME_STRETCH_BUFFER_SIZE - 1; // To trick it out of trying to do a "normal" thing later
@@ -1154,8 +1216,12 @@ void TimeStretcher::setupCrossfadeFromCache(SampleCache* cache, int cacheBytePos
 }
 
 int32_t TimeStretcher::getSamplePos(int playDirection) {
-	if (playDirection == 1) return samplePosBig >> 24;
-	else return (samplePosBig + 16777215) >> 24;
+	if (playDirection == 1) {
+		return samplePosBig >> 24;
+	}
+	else {
+		return (samplePosBig + 16777215) >> 24;
+	}
 }
 
 /*

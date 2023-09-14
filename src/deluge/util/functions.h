@@ -15,15 +15,14 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef FUNCTIONS_H
-#define FUNCTIONS_H
+#pragma once
 
 #include "RZA1/system/r_typedefs.h"
 #include "util/lookuptables/lookuptables.h"
-#include <string.h>
+#include <cstring>
 #include "ff.h"
 #include "definitions.h"
-
+#include "util/fixedpoint.h"
 extern "C" {
 #include "util/cfunctions.h"
 }
@@ -34,8 +33,6 @@ extern UI* getCurrentUI();
 
 extern const uint8_t modButtonX[];
 extern const uint8_t modButtonY[];
-extern const uint8_t modLedX[];
-extern const uint8_t modLedY[];
 
 extern uint8_t subModeToReturnTo;
 
@@ -60,40 +57,6 @@ uint32_t hexToIntFixedLength(char const* __restrict__ hexChars, int length);
 void byteToHex(uint8_t number, char* buffer);
 uint8_t hexToByte(char const* firstChar);
 
-// computes (((int64_t)a[31:0] * (int64_t)b[31:0]) >> 32)
-static inline int32_t multiply_32x32_rshift32(int32_t a, int32_t b) __attribute__((always_inline, unused));
-static inline int32_t multiply_32x32_rshift32(int32_t a, int32_t b) {
-	int32_t out;
-	asm("smmul %0, %1, %2" : "=r"(out) : "r"(a), "r"(b));
-	return out;
-}
-
-// computes (((int64_t)a[31:0] * (int64_t)b[31:0] + 0x8000000) >> 32)
-static inline int32_t multiply_32x32_rshift32_rounded(int32_t a, int32_t b) __attribute__((always_inline, unused));
-static inline int32_t multiply_32x32_rshift32_rounded(int32_t a, int32_t b) {
-	int32_t out;
-	asm("smmulr %0, %1, %2" : "=r"(out) : "r"(a), "r"(b));
-	return out;
-}
-
-// computes sum + (((int64_t)a[31:0] * (int64_t)b[31:0] + 0x8000000) >> 32)
-static inline int32_t multiply_accumulate_32x32_rshift32_rounded(int32_t sum, int32_t a, int32_t b)
-    __attribute__((always_inline, unused));
-static inline int32_t multiply_accumulate_32x32_rshift32_rounded(int32_t sum, int32_t a, int32_t b) {
-	int32_t out;
-	asm("smmlar %0, %2, %3, %1" : "=r"(out) : "r"(sum), "r"(a), "r"(b));
-	return out;
-}
-
-// computes sum - (((int64_t)a[31:0] * (int64_t)b[31:0] + 0x8000000) >> 32)
-static inline int32_t multiply_subtract_32x32_rshift32_rounded(int32_t sum, int32_t a, int32_t b)
-    __attribute__((always_inline, unused));
-static inline int32_t multiply_subtract_32x32_rshift32_rounded(int32_t sum, int32_t a, int32_t b) {
-	int32_t out;
-	asm("smmlsr %0, %2, %3, %1" : "=r"(out) : "r"(sum), "r"(a), "r"(b));
-	return out;
-}
-
 static inline int32_t add_saturation(int32_t a, int32_t b) __attribute__((always_inline, unused));
 static inline int32_t add_saturation(int32_t a, int32_t b) {
 	int32_t out;
@@ -102,8 +65,10 @@ static inline int32_t add_saturation(int32_t a, int32_t b) {
 }
 
 // computes limit((val >> rshift), 2**bits)
-template <uint8_t bits> static inline int32_t signed_saturate(int32_t val) __attribute__((always_inline, unused));
-template <uint8_t bits> static inline int32_t signed_saturate(int32_t val) {
+template <uint8_t bits>
+static inline int32_t signed_saturate(int32_t val) __attribute__((always_inline, unused));
+template <uint8_t bits>
+static inline int32_t signed_saturate(int32_t val) {
 	int32_t out;
 	asm("ssat %0, %1, %2" : "=r"(out) : "I"(bits), "r"(val));
 	return out;
@@ -157,7 +122,8 @@ inline int32_t signed_saturate_operand_unknown(int32_t val, int bits) {
 	}
 }
 
-template <uint8_t lshift> inline int32_t lshiftAndSaturate(int32_t val) {
+template <uint8_t lshift>
+inline int32_t lshiftAndSaturate(int32_t val) {
 	return signed_saturate<32 - lshift>(val) << lshift;
 }
 
@@ -241,11 +207,6 @@ int32_t getFinalParameterValueExpWithDumbEnvelopeHack(int32_t paramNeutralValue,
 
 void addAudio(StereoSample* inputBuffer, StereoSample* outputBuffer, int numSamples);
 
-void setRefreshTime(int newTime);
-void changeRefreshTime(int offset);
-void changeDimmerInterval(int offset);
-void setDimmerInterval(int newInterval);
-
 #if HAVE_OLED
 char const* getSourceDisplayNameForOLED(int s);
 char const* getPatchedParamDisplayNameForOled(int p);
@@ -267,7 +228,8 @@ static void convertFloatToIntAtMemoryLocation(uint32_t* pos) {
 	int32_t outputValue = (exponent >= 0) ? 2147483647 : (uint32_t)((readValue << 8) | 0x80000000) >> (-exponent);
 
 	// Sign bit
-	if (readValue >> 31) outputValue = -outputValue;
+	if (readValue >> 31)
+		outputValue = -outputValue;
 
 	*pos = outputValue;
 }
@@ -279,7 +241,8 @@ static int32_t floatToInt(float theFloat) {
 	int32_t outputValue = (exponent >= 0) ? 2147483647 : (uint32_t)((readValue << 8) | 0x80000000) >> (-exponent);
 
 	// Sign bit
-	if (readValue >> 31) outputValue = -outputValue;
+	if (readValue >> 31)
+		outputValue = -outputValue;
 
 	return outputValue;
 }
@@ -290,7 +253,8 @@ static int32_t floatBitPatternToInt(uint32_t readValue) {
 	int32_t outputValue = (exponent >= 0) ? 2147483647 : (uint32_t)((readValue << 8) | 0x80000000) >> (-exponent);
 
 	// Sign bit
-	if (readValue >> 31) outputValue = -outputValue;
+	if (readValue >> 31)
+		outputValue = -outputValue;
 
 	return outputValue;
 }
@@ -301,8 +265,10 @@ inline int32_t interpolateTableSigned(uint32_t input, int numBitsInInput, const 
 	int whichValue = input >> (numBitsInInput - numBitsInTableSize);
 	int rshiftAmount = numBitsInInput - 16 - numBitsInTableSize;
 	uint32_t rshifted;
-	if (rshiftAmount >= 0) rshifted = input >> rshiftAmount;
-	else rshifted = input << (-rshiftAmount);
+	if (rshiftAmount >= 0)
+		rshifted = input >> rshiftAmount;
+	else
+		rshifted = input << (-rshiftAmount);
 	int strength2 = rshifted & 65535;
 	int strength1 = 65536 - strength2;
 	return (int32_t)table[whichValue] * strength1 + (int32_t)table[whichValue + 1] * strength2;
@@ -330,18 +296,23 @@ inline int32_t interpolateTableSigned2d(uint32_t inputX, uint32_t inputY, int nu
 
 	uint32_t strength2;
 
-	if (lshiftAmount >= 0) strength2 = (inputY << lshiftAmount) & 2147483647;
-	else strength2 = (inputY >> (0 - lshiftAmount)) & 2147483647;
+	if (lshiftAmount >= 0)
+		strength2 = (inputY << lshiftAmount) & 2147483647;
+	else
+		strength2 = (inputY >> (0 - lshiftAmount)) & 2147483647;
 
 	uint32_t strength1 = 2147483647 - strength2;
 	return multiply_32x32_rshift32(value1, strength1) + multiply_32x32_rshift32(value2, strength2);
 }
 
-template <unsigned saturationAmount> inline int32_t getTanH(int32_t input) {
+template <unsigned saturationAmount>
+inline int32_t getTanH(int32_t input) {
 	uint32_t workingValue;
 
-	if (saturationAmount) workingValue = (uint32_t)lshiftAndSaturate<saturationAmount>(input) + 2147483648u;
-	else workingValue = (uint32_t)input + 2147483648u;
+	if (saturationAmount)
+		workingValue = (uint32_t)lshiftAndSaturate<saturationAmount>(input) + 2147483648u;
+	else
+		workingValue = (uint32_t)input + 2147483648u;
 
 	return interpolateTableSigned(workingValue, 32, tanHSmall, 8) >> (saturationAmount + 2);
 }
@@ -349,8 +320,10 @@ template <unsigned saturationAmount> inline int32_t getTanH(int32_t input) {
 inline int32_t getTanHUnknown(int32_t input, unsigned int saturationAmount) {
 	uint32_t workingValue;
 
-	if (saturationAmount) workingValue = (uint32_t)lshiftAndSaturateUnknown(input, saturationAmount) + 2147483648u;
-	else workingValue = (uint32_t)input + 2147483648u;
+	if (saturationAmount)
+		workingValue = (uint32_t)lshiftAndSaturateUnknown(input, saturationAmount) + 2147483648u;
+	else
+		workingValue = (uint32_t)input + 2147483648u;
 
 	return interpolateTableSigned(workingValue, 32, tanHSmall, 8) >> (saturationAmount + 2);
 }
@@ -384,7 +357,8 @@ inline int32_t getSquareSmall(uint32_t phase, uint32_t phaseWidth = 2147483648u)
  */
 
 inline int32_t getTriangleSmall(uint32_t phase) {
-	if (phase >= 2147483648u) phase = -phase;
+	if (phase >= 2147483648u)
+		phase = -phase;
 	return phase - 1073741824;
 }
 
@@ -467,12 +441,7 @@ inline void getTailColour(uint8_t rgb[], uint8_t fromRgb[]) {
 	unsigned int averageBrightness = ((unsigned int)fromRgb[0] + fromRgb[1] + fromRgb[2]);
 	rgb[0] = (((int)fromRgb[0] * 21 + averageBrightness) * 157) >> 14;
 	rgb[1] = (((int)fromRgb[1] * 21 + averageBrightness) * 157) >> 14;
-
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-	rgb[2] = (((int)averageBrightness) * 157) >> 14;
-#else
 	rgb[2] = (((int)fromRgb[2] * 21 + averageBrightness) * 157) >> 14;
-#endif
 }
 
 inline void getBlurColour(uint8_t rgb[], uint8_t fromRgb[]) {
@@ -483,13 +452,17 @@ inline void getBlurColour(uint8_t rgb[], uint8_t fromRgb[]) {
 }
 
 inline int increaseMagnitude(int number, int magnitude) {
-	if (magnitude >= 0) return number << magnitude;
-	else return number >> (-magnitude);
+	if (magnitude >= 0)
+		return number << magnitude;
+	else
+		return number >> (-magnitude);
 }
 
 inline int increaseMagnitudeAndSaturate(int32_t number, int magnitude) {
-	if (magnitude > 0) return lshiftAndSaturateUnknown(number, magnitude);
-	else return number >> (-magnitude);
+	if (magnitude > 0)
+		return lshiftAndSaturateUnknown(number, magnitude);
+	else
+		return number >> (-magnitude);
 }
 
 int howMuchMoreMagnitude(unsigned int to, unsigned int from);
@@ -553,5 +526,3 @@ inline void writeInt32(char** address, uint32_t number) {
 
 extern char miscStringBuffer[];
 extern char shortStringBuffer[];
-
-#endif // FUNCTIONS_H

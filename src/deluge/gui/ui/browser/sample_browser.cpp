@@ -15,7 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#define _GNU_SOURCE // Wait why?
+#define _GNU_SOURCE     // Wait why?
+#define __GNU_VISIBLE 1 // Makes strcasestr visible. Might already be the reason for the define above
 #include "gui/ui/browser/sample_browser.h"
 #include "util/functions.h"
 #include "gui/ui/sound_editor.h"
@@ -23,7 +24,7 @@
 #include "processing/engines/audio_engine.h"
 #include "storage/storage_manager.h"
 #include "hid/display/numeric_driver.h"
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 #include <string.h>
 #include "processing/source.h"
 #include "processing/sound/sound.h"
@@ -46,10 +47,10 @@
 #include "hid/encoders.h"
 #include "gui/ui/keyboard_screen.h"
 #include <new>
-#include "gui/context_menu/context_menu_sample_browser_kit.h"
-#include "gui/context_menu/context_menu_sample_browser_synth.h"
+#include "gui/context_menu/sample_browser/kit.h"
+#include "gui/context_menu/sample_browser/synth.h"
 #include "util/d_string.h"
-#include "gui/context_menu/context_menu_delete_file.h"
+#include "gui/context_menu/delete_file.h"
 #include "gui/waveform/waveform_basic_navigator.h"
 #include "gui/ui_timer_manager.h"
 #include "gui/views/instrument_clip_view.h"
@@ -66,7 +67,7 @@
 #include "modulation/automation/auto_param.h"
 #include "modulation/params/param_set.h"
 #include "model/note/note_row.h"
-#include "gui/menu_item/menu_item_multi_range.h"
+#include "gui/menu_item/multi_range.h"
 #include "storage/file_item.h"
 #include "playback/playback_handler.h"
 
@@ -77,6 +78,9 @@
 extern "C" {
 #include "RZA1/uart/sio_char.h"
 }
+
+using namespace deluge;
+using namespace gui;
 
 SampleBrowser sampleBrowser{};
 
@@ -97,7 +101,9 @@ SampleBrowser::SampleBrowser() {
 bool SampleBrowser::opened() {
 
 	bool success = Browser::opened();
-	if (!success) return false;
+	if (!success) {
+		return false;
+	}
 
 	actionLogger.deleteAllLogs();
 
@@ -113,7 +119,9 @@ bool SampleBrowser::opened() {
 	fileIndexSelected = 0;
 #endif
 
-	if (currentUIMode == UI_MODE_AUDITIONING) instrumentClipView.cancelAllAuditioning();
+	if (currentUIMode == UI_MODE_AUDITIONING) {
+		instrumentClipView.cancelAllAuditioning();
+	}
 
 	int error = storageManager.initSD();
 	if (error) {
@@ -160,18 +168,22 @@ sdError:
 dissectionDone:
 
 	error = arrivedInNewFolder(1, searchFilename, "SAMPLES");
-	if (error) goto sdError;
+	if (error) {
+		goto sdError;
+	}
 
-	IndicatorLEDs::setLedState(synthLedX, synthLedY, !soundEditor.editingKit());
-	IndicatorLEDs::setLedState(kitLedX, kitLedY, soundEditor.editingKit());
+	indicator_leds::setLedState(IndicatorLED::SYNTH, !soundEditor.editingKit());
+	indicator_leds::setLedState(IndicatorLED::KIT, soundEditor.editingKit());
 
-	IndicatorLEDs::setLedState(crossScreenEditLedX, crossScreenEditLedY, false);
-	IndicatorLEDs::setLedState(sessionViewLedX, sessionViewLedY, false);
-	IndicatorLEDs::setLedState(scaleModeLedX, scaleModeLedY, false);
+	indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, false);
+	indicator_leds::setLedState(IndicatorLED::SESSION_VIEW, false);
+	indicator_leds::setLedState(IndicatorLED::SCALE_MODE, false);
 
 	//soundEditor.setupShortcutBlink(soundEditor.currentSourceIndex, 5, 0);
 
-	if (currentUIMode == UI_MODE_AUDITIONING) instrumentClipView.cancelAllAuditioning();
+	if (currentUIMode == UI_MODE_AUDITIONING) {
+		instrumentClipView.cancelAllAuditioning();
+	}
 
 	possiblySetUpBlinking();
 
@@ -180,18 +192,18 @@ dissectionDone:
 
 void SampleBrowser::possiblySetUpBlinking() {
 
-#if DELUGE_MODEL != DELUGE_MODEL_40_PAD
 	if (!qwertyVisible && !currentlyShowingSamplePreview) {
 		int x = 0;
-		if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) x = soundEditor.currentSourceIndex;
+		if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) {
+			x = soundEditor.currentSourceIndex;
+		}
 		soundEditor.setupExclusiveShortcutBlink(x, 5);
 	}
-#endif
 }
 
 void SampleBrowser::focusRegained() {
 	//displayCurrentFilename();
-	IndicatorLEDs::setLedState(saveLedX, saveLedY, false); // In case returning from delete-file context menu
+	indicator_leds::setLedState(IndicatorLED::SAVE, false); // In case returning from delete-file context menu
 }
 
 void SampleBrowser::folderContentsReady(int entryDirection) {
@@ -232,7 +244,7 @@ void SampleBrowser::currentFileChanged(int movementDirection) {
 		uiTimerManager.unsetTimer(TIMER_SHORTCUT_BLINK);
 
 		memset(PadLEDs::transitionTakingPlaceOnRow, 1, sizeof(PadLEDs::transitionTakingPlaceOnRow));
-		PadLEDs::setupScroll(movementDirection, displayWidth, true);
+		PadLEDs::horizontal::setupScroll(movementDirection, displayWidth, true);
 		currentUIMode = UI_MODE_HORIZONTAL_SCROLL;
 	}
 
@@ -264,7 +276,9 @@ void SampleBrowser::exitAction() {
 
 	Browser::exitAction();
 
-	if (redrawUI) uiNeedsRendering(redrawUI);
+	if (redrawUI) {
+		uiNeedsRendering(redrawUI);
+	}
 }
 
 int SampleBrowser::timerCallback() {
@@ -274,7 +288,7 @@ int SampleBrowser::timerCallback() {
 		if (fileIndexSelected >= 0) {
 
 			char const* errorMessage;
-			ContextMenu* contextMenu;
+			gui::ContextMenu* contextMenu;
 
 			// AudioClip
 			if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
@@ -288,7 +302,7 @@ int SampleBrowser::timerCallback() {
 			else if (soundEditor.editingKit()) {
 
 				if (canImportWholeKit()) {
-					contextMenu = &contextMenuFileBrowserKit;
+					contextMenu = &gui::context_menu::sample_browser::kit;
 					goto considerContextMenu;
 				}
 				else {
@@ -302,7 +316,7 @@ cant:
 
 			// Synth
 			else {
-				contextMenu = &contextMenuFileBrowserSynth;
+				contextMenu = &context_menu::sample_browser::synth;
 
 considerContextMenu:
 				bool available = contextMenu->setupAndCheckAvailability();
@@ -318,64 +332,69 @@ considerContextMenu:
 		}
 		return ACTION_RESULT_DEALT_WITH;
 	}
-	else return Browser::timerCallback();
+	else {
+		return Browser::timerCallback();
+	}
 }
 
 void SampleBrowser::enterKeyPress() {
 
 	FileItem* currentFileItem = getCurrentFileItem();
 
-	// Make sure we're looking at a valid file / folder
-	if (currentFileItem) {
+	if (!currentFileItem) {
+		numericDriver.displayError(
+		    HAVE_OLED
+		        ? ERROR_FILE_NOT_FOUND
+		        : ERROR_NO_FURTHER_FILES_THIS_DIRECTION); // Make it say "NONE" on numeric Deluge, for consistency with old times.
+		return;
+	}
 
-		AudioEngine::stopAnyPreviewing();
+	AudioEngine::stopAnyPreviewing();
 
-		// If it's a directory...
-		if (currentFileItem->isFolder) {
+	// If it's a directory...
+	if (currentFileItem->isFolder) {
 
-			// Don't allow user to go into TEMP clips folder
-			if (currentFileItem->filename.equalsCaseIrrespective("TEMP")
-			    && currentDir.equalsCaseIrrespective("SAMPLES/CLIPS")) {
-				numericDriver.displayPopup(HAVE_OLED ? "TEMP folder can't be browsed" : "CANT");
-				return;
+		// Don't allow user to go into TEMP clips folder
+		if (currentFileItem->filename.equalsCaseIrrespective("TEMP")
+		    && currentDir.equalsCaseIrrespective("SAMPLES/CLIPS")) {
+			numericDriver.displayPopup(HAVE_OLED ? "TEMP folder can't be browsed" : "CANT");
+			return;
+		}
+
+		// Extremely weirdly, if we try to just put this inside the parentheses in the next line,
+		// it returns an empty string (&nothing). Surely this is a compiler error??
+		char const* filenameChars = currentFileItem->filename.get();
+
+		int error = goIntoFolder(filenameChars);
+
+		if (error) {
+			numericDriver.displayError(error);
+			close(); // Don't use goBackToSoundEditor() because that would do a left-scroll
+			return;
+		}
+	}
+
+	// Or if it's an audio file...
+	else {
+
+		// If we're here, we know that the file has fully loaded
+
+		// If user wants to slice...
+		if (Buttons::isShiftButtonPressed()) {
+
+			// Can only do this for Kit Clips, and for source 0, not 1, AND there has to be only one drum present, which is assigned to the first NoteRow
+			if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT && canImportWholeKit()) {
+				numericDriver.displayPopup("SLICER");
+				openUI(&slicer);
 			}
-
-			char const* filenameChars =
-			    currentFileItem->filename
-			        .get(); // Extremely weirdly, if we try to just put this inside the parentheses in the next line,
-			                // it returns an empty string (&nothing). Surely this is a compiler error??
-
-			int error = goIntoFolder(filenameChars);
-
-			if (error) {
-				numericDriver.displayError(error);
-				close(); // Don't use goBackToSoundEditor() because that would do a left-scroll
-				return;
+			else {
+				numericDriver.displayPopup(HAVE_OLED ? "Can only user slicer for brand-new kit" : "CANT");
 			}
 		}
 
-		// Or if it's an audio file...
+		// Otherwise, load it normally
 		else {
-
-			// If we're here, we know that the file has fully loaded
-
-			// If user wants to slice...
-			if (Buttons::isShiftButtonPressed()) {
-
-				// Can only do this for Kit Clips, and for source 0, not 1, AND there has to be only one drum present, which is assigned to the first NoteRow
-				if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT && canImportWholeKit()) {
-					numericDriver.displayPopup("SLICER");
-					openUI(&slicer);
-				}
-				else {
-					numericDriver.displayPopup(HAVE_OLED ? "Can only user slicer for brand-new kit" : "CANT");
-				}
-			}
-
-			// Otherwise, load it normally
-			else {
-				claimCurrentFile();
-			}
+			claimCurrentFile();
 		}
 	}
 }
@@ -386,10 +405,11 @@ int SampleBrowser::backButtonAction() {
 	return Browser::backButtonAction();
 }
 
-int SampleBrowser::buttonAction(int x, int y, bool on, bool inCardRoutine) {
+int SampleBrowser::buttonAction(hid::Button b, bool on, bool inCardRoutine) {
+	using namespace hid::button;
 
 	// Save button, to delete audio file
-	if (x == saveButtonX && y == saveButtonY && Buttons::isShiftButtonPressed()) {
+	if (b == SAVE && Buttons::isShiftButtonPressed()) {
 		if (!currentUIMode && on) {
 			FileItem* currentFileItem = getCurrentFileItem();
 			if (currentFileItem) {
@@ -397,7 +417,9 @@ int SampleBrowser::buttonAction(int x, int y, bool on, bool inCardRoutine) {
 
 					AudioEngine::stopAnyPreviewing();
 
-					if (inCardRoutine) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+					if (inCardRoutine) {
+						return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+					}
 
 					// Ensure sample isn't used in current song
 					String filePath;
@@ -427,25 +449,30 @@ int SampleBrowser::buttonAction(int x, int y, bool on, bool inCardRoutine) {
 	}
 
 	// Horizontal encoder button
-	else if (x == xEncButtonX && y == xEncButtonY) {
+	else if (b == X_ENC) {
 		if (on) {
-			if (isNoUIModeActive()) enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
+			if (isNoUIModeActive()) {
+				enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
+			}
 		}
 
 		else {
-			if (isUIModeActive(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON))
+			if (isUIModeActive(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON)) {
 				exitUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
+			}
 		}
 	}
 
-#if DELUGE_MODEL != DELUGE_MODEL_40_PAD
 	// Record button
-	else if (x == recordButtonX && y == recordButtonY && !audioRecorder.recordingSource
-	         && currentSong->currentClip->type != CLIP_TYPE_AUDIO) {
-		if (!on || currentUIMode != UI_MODE_NONE) return ACTION_RESULT_DEALT_WITH;
+	else if (b == RECORD && !audioRecorder.recordingSource && currentSong->currentClip->type != CLIP_TYPE_AUDIO) {
+		if (!on || currentUIMode != UI_MODE_NONE) {
+			return ACTION_RESULT_DEALT_WITH;
+		}
 		AudioEngine::stopAnyPreviewing();
 
-		if (inCardRoutine) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		if (inCardRoutine) {
+			return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
 
 		bool success = changeUISideways(&audioRecorder); // If this fails, we will become the current UI again
 		if (success) {
@@ -453,9 +480,10 @@ int SampleBrowser::buttonAction(int x, int y, bool on, bool inCardRoutine) {
 			audioRecorder.process();
 		}
 	}
-#endif
 
-	else return Browser::buttonAction(x, y, on, inCardRoutine);
+	else {
+		return Browser::buttonAction(b, on, inCardRoutine);
+	}
 
 	return ACTION_RESULT_DEALT_WITH;
 }
@@ -484,7 +512,9 @@ gotError:
 	FileItem* currentFileItem = getCurrentFileItem();
 
 	error = path->concatenate(&currentFileItem->filename);
-	if (error) goto gotError;
+	if (error) {
+		goto gotError;
+	}
 
 	return NO_ERROR;
 }
@@ -506,7 +536,7 @@ void SampleBrowser::previewIfPossible(int movementDirection) {
 	/*
 	// Was this in case they've already turned the knob further?
 	if (movementDirection && movementDirection * Encoders::encoders[ENCODER_THIS_CPU_SELECT].detentPos > 0 && numFilesFoundInRightDirection > 1) {
-		Uart::println("returned 1");
+		Debug::println("returned 1");
 		return;
 	}
 	*/
@@ -534,7 +564,9 @@ void SampleBrowser::previewIfPossible(int movementDirection) {
 		if (!instrumentClipView.fileBrowserShouldNotPreview) {
 			switch (FlashStorage::sampleBrowserPreviewMode) {
 			case PREVIEW_ONLY_WHILE_NOT_PLAYING:
-				if (playbackHandler.playbackState) break;
+				if (playbackHandler.playbackState) {
+					break;
+				}
 				// No break
 
 			case PREVIEW_ON:
@@ -547,7 +579,7 @@ void SampleBrowser::previewIfPossible(int movementDirection) {
 
 		/*
 		if (movementDirection && movementDirection * Encoders::encoders[ENCODER_THIS_CPU_SELECT].detentPos > 0 && numFilesFoundInRightDirection > 1) {
-			Uart::println("returned 2");
+			Debug::println("returned 2");
 			return;
 		}
 		*/
@@ -572,7 +604,7 @@ void SampleBrowser::previewIfPossible(int movementDirection) {
 					                                  waveformBasicNavigator.xZoom, PadLEDs::imageStore,
 					                                  &waveformBasicNavigator.renderData);
 					memset(PadLEDs::transitionTakingPlaceOnRow, 1, sizeof(PadLEDs::transitionTakingPlaceOnRow));
-					PadLEDs::setupScroll(movementDirection, displayWidth);
+					PadLEDs::horizontal::setupScroll(movementDirection, displayWidth);
 
 					currentUIMode = UI_MODE_HORIZONTAL_SCROLL;
 				}
@@ -611,9 +643,11 @@ void SampleBrowser::previewIfPossible(int movementDirection) {
 			if (movementDirection) {
 				getRootUI()->renderMainPads(0xFFFFFFFF, PadLEDs::imageStore, PadLEDs::occupancyMaskStore);
 				//((ViewScreen*)getRootUI())->renderToStore(0, true, false);
-				if (getRootUI() != &keyboardScreen) PadLEDs::reassessGreyout(true);
+				if (getRootUI() != &keyboardScreen) {
+					PadLEDs::reassessGreyout(true);
+				}
 				memset(PadLEDs::transitionTakingPlaceOnRow, 1, sizeof(PadLEDs::transitionTakingPlaceOnRow));
-				PadLEDs::setupScroll(movementDirection, displayWidth);
+				PadLEDs::horizontal::setupScroll(movementDirection, displayWidth);
 				currentUIMode = UI_MODE_HORIZONTAL_SCROLL;
 			}
 
@@ -648,19 +682,20 @@ int SampleBrowser::padAction(int x, int y, int on) {
 possiblyExit:
 		if (on && !currentUIMode) {
 			AudioEngine::stopAnyPreviewing();
-			if (sdRoutineLock) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			if (sdRoutineLock) {
+				return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
 			exitAction();
 		}
 	}
 
 	else {
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-		goto possiblyExit;
-#else
 		// If qwerty not visible yet, make it visible
 		if (!qwertyVisible) {
 			if (on && !currentUIMode) {
-				if (sdRoutineLock) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				if (sdRoutineLock) {
+					return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				}
 
 				qwertyVisible = true;
 
@@ -684,9 +719,12 @@ possiblyExit:
 			}
 		}
 
-		if (qwertyVisible) return QwertyUI::padAction(x, y, on);
-		else return ACTION_RESULT_DEALT_WITH;
-#endif
+		if (qwertyVisible) {
+			return QwertyUI::padAction(x, y, on);
+		}
+		else {
+			return ACTION_RESULT_DEALT_WITH;
+		}
 	}
 
 	return ACTION_RESULT_DEALT_WITH;
@@ -710,7 +748,9 @@ int SampleBrowser::claimAudioFileForInstrument(bool makeWaveTableWorkAtAllCosts)
 	AudioFileHolder* holder = soundEditor.getCurrentAudioFileHolder();
 	holder->setAudioFile(NULL);
 	int error = getCurrentFilePath(&holder->filePath);
-	if (error) return error;
+	if (error) {
+		return error;
+	}
 
 	return holder->loadFile(soundEditor.currentSource->sampleControls.reversed, true, true, CLUSTER_ENQUEUE, 0,
 	                        makeWaveTableWorkAtAllCosts);
@@ -722,7 +762,9 @@ int SampleBrowser::claimAudioFileForAudioClip() {
 	AudioFileHolder* holder = soundEditor.getCurrentAudioFileHolder();
 	holder->setAudioFile(NULL);
 	int error = getCurrentFilePath(&holder->filePath);
-	if (error) return error;
+	if (error) {
+		return error;
+	}
 
 	bool reversed = ((AudioClip*)currentSong->currentClip)->sampleControls.reversed;
 	error = holder->loadFile(reversed, true, true);
@@ -776,8 +818,9 @@ removeLoadingAnimationAndGetOut:
 		uint32_t sampleLengthInTicks = (lengthInSamplesAt44 << 32) / currentSong->timePerTimerTickBig;
 
 		int32_t newLength = 3;
-		while (newLength * 1.41 < sampleLengthInTicks)
+		while (newLength * 1.41 < sampleLengthInTicks) {
 			newLength <<= 1;
+		}
 
 		int32_t oldLength = clip->loopLength;
 
@@ -833,11 +876,15 @@ doLoadAsWaveTable:
 					}
 
 					// Or if they don't really mind, just load it as a Sample.
-					else goto doLoadAsSample;
+					else {
+						goto doLoadAsSample;
+					}
 				}
 
 				// Or any other error...
-				else goto removeLoadingAnimationAndGetOut;
+				else {
+					goto removeLoadingAnimationAndGetOut;
+				}
 			}
 
 			// Alright, if we're still here, it was successfully loaded as a WaveTable!
@@ -880,7 +927,9 @@ doLoadAsSample:
 			soundEditor.currentSource->setOscType(OSC_TYPE_SAMPLE);
 
 			error = claimAudioFileForInstrument();
-			if (error) goto removeLoadingAnimationAndGetOut;
+			if (error) {
+				goto removeLoadingAnimationAndGetOut;
+			}
 
 			Sample* sample = (Sample*)soundEditor.getCurrentAudioFileHolder()->audioFile;
 
@@ -948,10 +997,14 @@ doLoadAsSample:
 				drum->name.clear();
 
 				String newName;
-				if (!numCharsInPrefix) newName.set(&enteredText);
+				if (!numCharsInPrefix) {
+					newName.set(&enteredText);
+				}
 				else {
 					error = newName.set(&enteredText.get()[numCharsInPrefix]);
-					if (error) goto removeLoadingAnimationAndGetOut;
+					if (error) {
+						goto removeLoadingAnimationAndGetOut;
+					}
 				}
 
 				Kit* kit = (Kit*)currentSong->currentClip->output;
@@ -960,7 +1013,9 @@ doLoadAsSample:
 				if (kit->getDrumFromName(newName.get())) {
 
 					error = kit->makeDrumNameUnique(&newName, 2);
-					if (error) goto removeLoadingAnimationAndGetOut;
+					if (error) {
+						goto removeLoadingAnimationAndGetOut;
+					}
 				}
 
 				drum->name.set(&newName);
@@ -1013,7 +1068,7 @@ doLoadAsSample:
 
 		// If there was only one MultiRange, don't go back to the range menu (that's the BOT-TOP thing).
 		if (soundEditor.currentSource->ranges.getNumElements() <= 1 && soundEditor.navigationDepth
-		    && soundEditor.menuItemNavigationRecord[soundEditor.navigationDepth - 1] == &multiRangeMenu) {
+		    && soundEditor.menuItemNavigationRecord[soundEditor.navigationDepth - 1] == &menu_item::multiRangeMenu) {
 			soundEditor.navigationDepth--;
 		}
 	}
@@ -1124,8 +1179,8 @@ int getNumTimesIncorrectSampleOrderSeen(int numSamples, Sample** samples) {
 		}
 	}
 
-	Uart::print("timesIncorrectOrderSeen: ");
-	Uart::println(timesIncorrectOrderSeen);
+	Debug::print("timesIncorrectOrderSeen: ");
+	Debug::println(timesIncorrectOrderSeen);
 
 	return timesIncorrectOrderSeen;
 }
@@ -1177,8 +1232,9 @@ removeReasonsFromSamplesAndGetOut:
 				if (thisSample->partOfFolderBeingLoaded) {
 					thisSample->partOfFolderBeingLoaded = false;
 #if ALPHA_OR_BETA_VERSION
-					if (thisSample->numReasonsToBeLoaded <= 0)
+					if (thisSample->numReasonsToBeLoaded <= 0) {
 						numericDriver.freezeWithError("E213"); // I put this here to try and catch an E004 Luc got
+					}
 #endif
 					thisSample->removeReason("E392"); // Remove that temporary reason we added
 				}
@@ -1207,10 +1263,18 @@ removeReasonsFromSamplesAndGetOut:
 
 		result = f_readdir_get_filepointer(&staticDIR, &staticFNO, &thisFilePointer); /* Read a directory item */
 
-		if (result != FR_OK || staticFNO.fname[0] == 0) break; // Break on error or end of dir
-		if (staticFNO.fname[0] == '.') continue;               // Ignore dot entry
-		if (staticFNO.fattrib & AM_DIR) continue;              // Ignore folders
-		if (!isAudioFilename(staticFNO.fname)) continue;       // Ignore anything that's not an audio file
+		if (result != FR_OK || staticFNO.fname[0] == 0) {
+			break; // Break on error or end of dir
+		}
+		if (staticFNO.fname[0] == '.') {
+			continue; // Ignore dot entry
+		}
+		if (staticFNO.fattrib & AM_DIR) {
+			continue; // Ignore folders
+		}
+		if (!isAudioFilename(staticFNO.fname)) {
+			continue; // Ignore anything that's not an audio file
+		}
 
 		// This is a usable audio file
 
@@ -1238,7 +1302,9 @@ removeReasonsFromSamplesAndGetOut:
 
 		newSample->addReason();
 		newSample->partOfFolderBeingLoaded = true;
-		if (newSample->getLengthInMSec() > 20) doingSingleCycle = false;
+		if (newSample->getLengthInMSec() > 20) {
+			doingSingleCycle = false;
+		}
 
 		if (commonMIDINote == -2) {
 			commonMIDINote = newSample->midiNoteFromFile;
@@ -1264,8 +1330,8 @@ removeReasonsFromSamplesAndGetOut:
 
 	// Ok, the samples are now all in memory.
 
-	Uart::print("loaded from folder: ");
-	Uart::println(numSamples);
+	Debug::print("loaded from folder: ");
+	Debug::println(numSamples);
 
 	// If all samples were tagged with the same MIDI note, we get suspicious and delete them.
 	bool discardingMIDINoteFromFile = (numSamples > 1 && commonMIDINote >= 0);
@@ -1290,7 +1356,9 @@ removeReasonsFromSamplesAndGetOut:
 			if (thisSample->partOfFolderBeingLoaded) {
 				thisSample->partOfFolderBeingLoaded = false;
 
-				if (discardingMIDINoteFromFile) thisSample->midiNoteFromFile = -1;
+				if (discardingMIDINoteFromFile) {
+					thisSample->midiNoteFromFile = -1;
+				}
 
 				if (detectPitch) {
 					thisSample->workOutMIDINote(doingSingleCycle);
@@ -1300,15 +1368,17 @@ removeReasonsFromSamplesAndGetOut:
 				sampleI++;
 				thisSamplePointer++;
 
-				if (sampleI == numSamples) break; // Just for safety
+				if (sampleI == numSamples) {
+					break; // Just for safety
+				}
 			}
 		}
 	}
 
 	numSamples = sampleI; // In case it's lower now, e.g. due to some samples' pitch detection failing
 
-	Uart::print("successfully detected pitch: ");
-	Uart::println(numSamples);
+	Debug::print("successfully detected pitch: ");
+	Debug::println(numSamples);
 
 	Sample** sortAreas[2];
 	sortAreas[0] = sortArea;
@@ -1326,7 +1396,9 @@ removeReasonsFromSamplesAndGetOut:
 #define NOTE_CHECK_ERROR_MARGIN 0.75
 
 		int badnessRatingFromC = getNumTimesIncorrectSampleOrderSeen(numSamples, sortAreas[readArea]);
-		if (!badnessRatingFromC) goto allSorted; // If that's all fine, we're done
+		if (!badnessRatingFromC) {
+			goto allSorted; // If that's all fine, we're done
+		}
 
 		// If the Samples are in precisely the wrong order, something's happened like we've been interpretting a dash (-) in the filenames as a minus sign.
 		// Just reverse the order.
@@ -1351,7 +1423,7 @@ removeReasonsFromSamplesAndGetOut:
 			// But if C is actually bad enough, we might conclude that the filenames are irrelevant
 			if ((badnessRatingFromC * 3) > numSamples) goto justSortByPitch;
 
-			Uart::println("going back to ordering from C");
+			Debug::println("going back to ordering from C");
 			sortSamples(filenameGreaterOrEqual, numSamples, sortAreas, &readArea, &writeArea);
 		}
 
@@ -1364,7 +1436,7 @@ removeReasonsFromSamplesAndGetOut:
 		*/
 
 		// Ok, we're here, the samples are optimally ordered by file, but, the pitch is out.
-		Uart::println("sample order by file finalized");
+		Debug::println("sample order by file finalized");
 
 		float prevNote = sortAreas[readArea][0]->midiNote; // May be MIDI_NOTE_ERROR
 
@@ -1375,7 +1447,9 @@ removeReasonsFromSamplesAndGetOut:
 			Sample* thisSample = sortAreas[readArea][s];
 
 			float noteHere = thisSample->midiNote;
-			if (noteHere == MIDI_NOTE_ERROR) continue;
+			if (noteHere == MIDI_NOTE_ERROR) {
+				continue;
+			}
 
 			if (noteHere < prevNote - NOTE_CHECK_ERROR_MARGIN) {
 
@@ -1386,8 +1460,12 @@ removeReasonsFromSamplesAndGetOut:
 
 				for (int t = s - 1; t >= 0; t--) {
 					Sample* thatSample = sortAreas[readArea][t];
-					if (thatSample->midiNote == MIDI_NOTE_ERROR) continue;
-					if (thatSample->midiNote < noteHere + t - s + NOTE_CHECK_ERROR_MARGIN) break;
+					if (thatSample->midiNote == MIDI_NOTE_ERROR) {
+						continue;
+					}
+					if (thatSample->midiNote < noteHere + t - s + NOTE_CHECK_ERROR_MARGIN) {
+						break;
+					}
 
 					numIncorrectBackwards++; // If we're here, this note would have to be marked as incorrect
 				}
@@ -1397,8 +1475,12 @@ removeReasonsFromSamplesAndGetOut:
 
 				for (int t = s + 1; t < numSamples; t++) {
 					Sample* thatSample = sortAreas[readArea][t];
-					if (thatSample->midiNote == MIDI_NOTE_ERROR) continue;
-					if (thatSample->midiNote >= prevNote + t - s - NOTE_CHECK_ERROR_MARGIN) break;
+					if (thatSample->midiNote == MIDI_NOTE_ERROR) {
+						continue;
+					}
+					if (thatSample->midiNote >= prevNote + t - s - NOTE_CHECK_ERROR_MARGIN) {
+						break;
+					}
 
 					numIncorrectForwards++;
 				}
@@ -1407,8 +1489,12 @@ removeReasonsFromSamplesAndGetOut:
 				if (numIncorrectBackwards < numIncorrectForwards) {
 					for (int t = s - 1; t >= 0; t--) {
 						Sample* thatSample = sortAreas[readArea][t];
-						if (thatSample->midiNote == MIDI_NOTE_ERROR) continue;
-						if (thatSample->midiNote < noteHere + t - s + NOTE_CHECK_ERROR_MARGIN) break;
+						if (thatSample->midiNote == MIDI_NOTE_ERROR) {
+							continue;
+						}
+						if (thatSample->midiNote < noteHere + t - s + NOTE_CHECK_ERROR_MARGIN) {
+							break;
+						}
 
 						thatSample->midiNote = MIDI_NOTE_ERROR;
 					}
@@ -1419,8 +1505,12 @@ removeReasonsFromSamplesAndGetOut:
 					thisSample->midiNote = MIDI_NOTE_ERROR;
 					for (int t = s + 1; t < numSamples; t++) {
 						Sample* thatSample = sortAreas[readArea][t];
-						if (thatSample->midiNote == MIDI_NOTE_ERROR) continue;
-						if (thatSample->midiNote >= prevNote + t - s - NOTE_CHECK_ERROR_MARGIN) break;
+						if (thatSample->midiNote == MIDI_NOTE_ERROR) {
+							continue;
+						}
+						if (thatSample->midiNote >= prevNote + t - s - NOTE_CHECK_ERROR_MARGIN) {
+							break;
+						}
 
 						thatSample->midiNote = MIDI_NOTE_ERROR;
 					}
@@ -1478,10 +1568,10 @@ removeReasonsFromSamplesAndGetOut:
 				continue;
 			}
 
-			Uart::print("redoing, limited to ");
-			Uart::print(minFreqHz);
-			Uart::print(" to ");
-			Uart::println(maxFreqHz);
+			Debug::print("redoing, limited to ");
+			Debug::print(minFreqHz);
+			Debug::print(" to ");
+			Debug::println(maxFreqHz);
 
 			thisSample->workOutMIDINote(doingSingleCycle, minFreqHz, maxFreqHz, false);
 
@@ -1492,7 +1582,7 @@ removeReasonsFromSamplesAndGetOut:
 				minFreqHz *= 2;
 				maxFreqHz *= 2;
 
-				Uart::println("pretending an octave up...");
+				Debug::println("pretending an octave up...");
 
 				thisSample->workOutMIDINote(doingSingleCycle, minFreqHz, maxFreqHz, false);
 
@@ -1520,9 +1610,15 @@ allSorted:
 		memcpy(sortArea, &sortArea[numSamples], numSamples * sizeof(Sample*));
 	}
 
-	if (getSortArea) *getSortArea = sortArea;
-	if (getNumSamples) *getNumSamples = numSamples;
-	if (getDoingSingleCycle) *getDoingSingleCycle = doingSingleCycle;
+	if (getSortArea) {
+		*getSortArea = sortArea;
+	}
+	if (getNumSamples) {
+		*getNumSamples = numSamples;
+	}
+	if (getDoingSingleCycle) {
+		*getDoingSingleCycle = doingSingleCycle;
+	}
 
 	return true;
 }
@@ -1550,7 +1646,7 @@ doReturnFalse:
 		return false;
 	}
 
-	Uart::println("loaded and sorted samples");
+	Debug::println("loaded and sorted samples");
 
 	AudioEngine::routineWithClusterLoading(); // --------------------------------------------------
 
@@ -1572,8 +1668,9 @@ doReturnFalse:
 			for (int s = 0; s < numSamples; s++) {
 				Sample* thisSample = sortArea[s];
 #if ALPHA_OR_BETA_VERSION
-				if (thisSample->numReasonsToBeLoaded <= 0)
+				if (thisSample->numReasonsToBeLoaded <= 0) {
 					numericDriver.freezeWithError("E215"); // I put this here to try and catch an E004 Luc got
+				}
 #endif
 				thisSample->removeReason("E393"); // Remove that temporary reason we added above
 			}
@@ -1595,13 +1692,17 @@ doReturnFalse:
 			Sample* thisSample = sortArea[s];
 			float noteHere = thisSample->midiNote;
 			if (noteHere >= prevNote + 12.5 && noteHere <= prevNote + 13.5) {
-				if (whichSampleIsAnOctaveUp) goto skipOctaveCorrection;
-				else whichSampleIsAnOctaveUp = s;
+				if (whichSampleIsAnOctaveUp) {
+					goto skipOctaveCorrection;
+				}
+				else {
+					whichSampleIsAnOctaveUp = s;
+				}
 			}
 			else {
 				// If there are other intervals of more than a semitone, we can't really take it for granted what's going on, so get out
 				if (noteHere >= prevNote + 1.85) {
-					Uart::println("aaa");
+					Debug::println("aaa");
 					uartPrintlnFloat(noteHere - prevNote);
 					goto skipOctaveCorrection;
 				}
@@ -1611,7 +1712,7 @@ doReturnFalse:
 		}
 
 		if (whichSampleIsAnOctaveUp) {
-			Uart::println("correcting octaves");
+			Debug::println("correcting octaves");
 			// Correct earlier ones?
 			if (whichSampleIsAnOctaveUp * 2 < numSamples) {
 				for (int s = 0; s < whichSampleIsAnOctaveUp; s++) {
@@ -1644,16 +1745,18 @@ skipOctaveCorrection:
 		soundEditor.currentSource->setOscType(OSC_TYPE_SAMPLE);
 	}
 
-	Uart::println("creating ranges");
+	Debug::println("creating ranges");
 
 	for (int s = 0; s < numSamples; s++) {
 
-		if (!(s & 31)) AudioEngine::routineWithClusterLoading(); // --------------------------------------------------
+		if (!(s & 31)) {
+			AudioEngine::routineWithClusterLoading(); // --------------------------------------------------
+		}
 
 		Sample* thisSample = sortArea[s];
 
 		if (thisSample->midiNote == MIDI_NOTE_ERROR) {
-			Uart::println("dismissing 1 sample for which pitch couldn't be detected");
+			Debug::println("dismissing 1 sample for which pitch couldn't be detected");
 			// TODO: shouldn't we remove a reason here?
 			continue;
 		}
@@ -1666,10 +1769,10 @@ skipOctaveCorrection:
 			float midPoint = (thisSample->midiNote + nextSample->midiNote) * 0.5;
 			topNote = midPoint; // Round down
 			if (topNote <= lastTopNote) {
-				Uart::print("skipping sample cos ");
-				Uart::print(topNote);
-				Uart::print(" <= ");
-				Uart::println(lastTopNote);
+				Debug::print("skipping sample cos ");
+				Debug::print(topNote);
+				Debug::print(" <= ");
+				Debug::println(lastTopNote);
 				// TODO: shouldn't we remove a reason here?
 				continue;
 			}
@@ -1681,15 +1784,16 @@ skipOctaveCorrection:
 		}
 		else {
 #if ALPHA_OR_BETA_VERSION
-			if (soundEditor.currentSource->ranges.elementSize != sizeof(MultisampleRange))
+			if (soundEditor.currentSource->ranges.elementSize != sizeof(MultisampleRange)) {
 				numericDriver.freezeWithError("E431");
+			}
 #endif
 			range = (MultisampleRange*)soundEditor.currentSource->ranges.insertMultiRange(
 			    rangeIndex); // We know it's gonna succeed
 		}
 
-		Uart::print("top note: ");
-		Uart::println(topNote);
+		Debug::print("top note: ");
+		Debug::println(topNote);
 
 		range->topNote = topNote;
 
@@ -1700,12 +1804,17 @@ skipOctaveCorrection:
 		                                                       topNote);
 
 		totalMSec += thisSample->getLengthInMSec();
-		if (thisSample->fileLoopEndSamples) numWithFileLoopPoints++;
-		if (range->sampleHolder.loopEndPos) numWithResultingLoopEndPoints++;
+		if (thisSample->fileLoopEndSamples) {
+			numWithFileLoopPoints++;
+		}
+		if (range->sampleHolder.loopEndPos) {
+			numWithResultingLoopEndPoints++;
+		}
 
-		if (ALPHA_OR_BETA_VERSION && thisSample->numReasonsToBeLoaded <= 0)
+		if (ALPHA_OR_BETA_VERSION && thisSample->numReasonsToBeLoaded <= 0) {
 			numericDriver.freezeWithError("E216"); // I put this here to try and catch an E004 Luc got
-		thisSample->removeReason("E394");          // Remove that temporary reason we added above
+		}
+		thisSample->removeReason("E394"); // Remove that temporary reason we added above
 
 		rangeIndex++;
 		lastTopNote = topNote;
@@ -1718,8 +1827,8 @@ skipOctaveCorrection:
 		goto doReturnFalse;
 	}
 
-	Uart::print("distinct ranges: ");
-	Uart::println(numSamples);
+	Debug::print("distinct ranges: ");
+	Debug::println(numSamples);
 
 	generalMemoryAllocator.dealloc(sortArea);
 
@@ -1884,7 +1993,9 @@ getOut:
 
 				if (kit->getDrumFromName(newName.get())) {
 					error = kit->makeDrumNameUnique(&newName, 2);
-					if (error) goto skipNameStuff;
+					if (error) {
+						goto skipNameStuff;
+					}
 				}
 
 				drum->name.set(&newName);
@@ -1894,8 +2005,9 @@ skipNameStuff:
 			source->repeatMode = (thisSample->getLengthInMSec() < 2002) ? SAMPLE_REPEAT_ONCE : SAMPLE_REPEAT_CUT;
 
 #if ALPHA_OR_BETA_VERSION
-			if (thisSample->numReasonsToBeLoaded <= 0)
+			if (thisSample->numReasonsToBeLoaded <= 0) {
 				numericDriver.freezeWithError("E217"); // I put this here to try and catch an E004 Luc got
+			}
 #endif
 			thisSample->removeReason("E395");
 		}
@@ -1934,7 +2046,9 @@ doNormal:
 		    && (isUIModeActive(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON) || waveformBasicNavigator.isZoomedIn())) {
 
 			// We're quite likely going to need to read the SD card to do either scrolling or zooming
-			if (sdRoutineLock) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			if (sdRoutineLock) {
+				return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
 
 			// Zoom
 			if (isUIModeActive(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON)) {
@@ -1983,8 +2097,9 @@ doNormal:
 
 int SampleBrowser::verticalEncoderAction(int offset, bool inCardRoutine) {
 	if (getRootUI() == &instrumentClipView) {
-		if (Buttons::isShiftButtonPressed() || Buttons::isButtonPressed(xEncButtonX, xEncButtonY))
+		if (Buttons::isShiftButtonPressed() || Buttons::isButtonPressed(hid::button::X_ENC)) {
 			return ACTION_RESULT_DEALT_WITH;
+		}
 		return instrumentClipView.verticalEncoderAction(offset, inCardRoutine);
 	}
 

@@ -22,7 +22,7 @@
 #include "storage/storage_manager.h"
 #include "dsp/timestretch/time_stretcher.h"
 #include <stdlib.h>
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 #include "util/functions.h"
 
 //#define MEASURE_HOP_END_PERFORMANCE 1
@@ -74,7 +74,9 @@ void LivePitchShifter::render(int32_t* __restrict__ outputBuffer, int numSamples
                               int interpolationBufferSize) {
 
 	LiveInputBuffer* liveInputBuffer = AudioEngine::getOrCreateLiveInputBuffer(inputType, false);
-	if (ALPHA_OR_BETA_VERSION && !liveInputBuffer) numericDriver.freezeWithError("E165");
+	if (ALPHA_OR_BETA_VERSION && !liveInputBuffer) {
+		numericDriver.freezeWithError("E165");
+	}
 
 	liveInputBuffer->giveInput(numSamplesThisFunctionCall, AudioEngine::audioSampleTimer, inputType);
 
@@ -139,24 +141,24 @@ startRenderAgain:
 			nextCrossfadeLength = getMin(nextCrossfadeLength, maxTotalPlayable >> 1);
 
 			samplesTilHopEnd = maxPlayableSamplesNewer - nextCrossfadeLength;
-			//Uart::println("shortening hop");
+			//Debug::println("shortening hop");
 
 			if (samplesTilHopEnd < 0) {
 				samplesTilHopEnd = 0;
 				nextCrossfadeLength = getMax(maxPlayableSamplesNewer, 0);
-				//Uart::println("nex");
+				//Debug::println("nex");
 				crossfadeProgress = 16777216;
 			}
 
 			else if (samplesTilHopEnd == 0) {
-				//Uart::println("to zero");
+				//Debug::println("to zero");
 			}
 
 			else if (samplesTilHopEnd > 0 && olderPlayHeadIsCurrentlySounding()) {
 				uint32_t minCrossfadeIncrement = (uint32_t)(16777216 - crossfadeProgress) / samplesTilHopEnd + 1;
 				if (minCrossfadeIncrement > crossfadeIncrement) {
 					crossfadeIncrement = minCrossfadeIncrement;
-					//Uart::println("d");
+					//Debug::println("d");
 				}
 			}
 		}
@@ -169,7 +171,7 @@ startRenderAgain:
 			    0,
 #endif
 			    liveInputBuffer, phaseIncrement);
-			//Uart::println(maxPlayableSamplesOlder);
+			//Debug::println(maxPlayableSamplesOlder);
 			if (!maxPlayableSamplesOlder) {
 				crossfadeIncrement = 16777216;
 			}
@@ -178,7 +180,7 @@ startRenderAgain:
 				//crossfadeIncrement = getMax(crossfadeIncrement, minCrossfadeIncrement);
 				if (minCrossfadeIncrement > crossfadeIncrement) {
 					crossfadeIncrement = minCrossfadeIncrement;
-					//Uart::println("c");
+					//Debug::println("c");
 				}
 			}
 		}
@@ -207,9 +209,9 @@ startRenderAgain:
 
 			if (percLatest >= percNewerPlayHead + percThresholdForCut) {
 				/*
-				Uart::print(percLatest);
-				Uart::print(" vs ");
-				Uart::println(percNewerPlayHead);
+				Debug::print(percLatest);
+				Debug::print(" vs ");
+				Debug::println(percNewerPlayHead);
 				*/
 				samplesTilHopEnd = 0;
 			}
@@ -361,16 +363,16 @@ void LivePitchShifter::hopEnd(int32_t phaseIncrement, LiveInputBuffer* liveInput
 
 	//int numChannelsNow = numChannels;
 
-	//Uart::println("");
-	//Uart::print("hop at ");
-	//Uart::println(numRawSamplesProcessedAtNowTime);
+	//Debug::println("");
+	//Debug::print("hop at ");
+	//Debug::println(numRawSamplesProcessedAtNowTime);
 	if (crossfadeProgress < 16777216) {
-		Uart::println("last crossfade not finished");
+		Debug::println("last crossfade not finished");
 		//if (ALPHA_OR_BETA_VERSION) numericDriver.freezeWithError("FADE");
 	}
-	//Uart::println(phaseIncrement);
+	//Debug::println(phaseIncrement);
 
-	//Uart::println((uint32_t)(liveInputBuffer->numRawSamplesProcessed - playHeads[PLAY_HEAD_NEWER].rawBufferReadPos) & (INPUT_RAW_BUFFER_SIZE - 1)); // How far behind raw buffer is being read
+	//Debug::println((uint32_t)(liveInputBuffer->numRawSamplesProcessed - playHeads[PLAY_HEAD_NEWER].rawBufferReadPos) & (INPUT_RAW_BUFFER_SIZE - 1)); // How far behind raw buffer is being read
 
 	// What was new is now old
 	playHeads[PLAY_HEAD_OLDER] = playHeads[PLAY_HEAD_NEWER];
@@ -399,8 +401,12 @@ void LivePitchShifter::hopEnd(int32_t phaseIncrement, LiveInputBuffer* liveInput
 
 	// Or if outside of that...
 	else {
-		if (pitchLog > (896 << 20)) pitchLog = (896 << 20);
-		else if (pitchLog < (768 << 20)) pitchLog = (768 << 20);
+		if (pitchLog > (896 << 20)) {
+			pitchLog = (896 << 20);
+		}
+		else if (pitchLog < (768 << 20)) {
+			pitchLog = (768 << 20);
+		}
 
 		int position = pitchLog - (768 << 20);
 
@@ -500,7 +506,9 @@ void LivePitchShifter::hopEnd(int32_t phaseIncrement, LiveInputBuffer* liveInput
 
 				while (howFarBackSearched < backEdge) {
 					howFarBackSearched++;
-					if (howFarBackSearched > percPos) goto stopPercSearch;
+					if (howFarBackSearched > percPos) {
+						goto stopPercSearch;
+					}
 					int percHere =
 					    liveInputBuffer
 					        ->percBuffer[(uint32_t)(percPos - howFarBackSearched) & (PERC_BUFFER_REDUCTION_SIZE - 1)];
@@ -528,10 +536,13 @@ stopPercSearch:
 		}
 
 		samplesTilHopEnd = ((uint64_t)howFarBack << 24) / (uint32_t)(phaseIncrement - 16777216) - nextCrossfadeLength;
-		if (samplesTilHopEnd < 100)
+		if (samplesTilHopEnd < 100) {
 			samplesTilHopEnd =
 			    100; // Must be 100, not 200. Otherwise, shifting up 2 octaves gets messed up. (Though maybe not anymore?)
-		else if (samplesTilHopEnd > maxHopLength) samplesTilHopEnd = maxHopLength;
+		}
+		else if (samplesTilHopEnd > maxHopLength) {
+			samplesTilHopEnd = maxHopLength;
+		}
 
 		int minDistanceBack = numRawSamplesProcessedAtNowTime - numRawSamplesProcessedLatest
 		                      + averagesStartOffsetFromHead
@@ -591,12 +602,14 @@ stopPercSearch:
 		// but we're then going to experiment with shifting that, below
 
 		if (((uint32_t)(averagesStartPosNewHead - averagesStartOffsetFromHead) & (INPUT_RAW_BUFFER_SIZE - 1))
-		    >= numRawSamplesProcessedLatest)
+		    >= numRawSamplesProcessedLatest) {
 			goto stopSearch;
+		}
 
 		if ((uint32_t)(numRawSamplesProcessedLatest - averagesStartPosNewHead)
-		    & (INPUT_RAW_BUFFER_SIZE - 1) < lengthPerMovingAverage * TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES)
+		    & (INPUT_RAW_BUFFER_SIZE - 1) < lengthPerMovingAverage * TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES) {
 			goto stopSearch;
+		}
 
 		int32_t newHeadTotals[TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES];
 		liveInputBuffer->getAveragesForCrossfade(newHeadTotals, averagesStartPosNewHead, lengthPerMovingAverage,
@@ -632,7 +645,9 @@ startSearch:
 				searchSizeBoundary =
 				    averagesStartPosNewHead - averagesStartOffsetFromHead
 				    - 1; // The -1 is becacuse of the 1 we subtract from readPos[0] above when searching left
-				if (searchSizeBoundary <= 0) goto searchNextDirection;
+				if (searchSizeBoundary <= 0) {
+					goto searchNextDirection;
+				}
 			}
 		}
 		else {
@@ -657,10 +672,13 @@ startSearch:
 
 				readPos[i] = (uint32_t)(readPos[i] + searchDirection) & (INPUT_RAW_BUFFER_SIZE - 1);
 
-				if (i < TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES)
+				if (i < TIME_STRETCH_CROSSFADE_NUM_MOVING_AVERAGES) {
 					newHeadRunningTotals[i] -= readValue * searchDirection;
+				}
 
-				if (i > 0) newHeadRunningTotals[i - 1] += readValue * searchDirection;
+				if (i > 0) {
+					newHeadRunningTotals[i - 1] += readValue * searchDirection;
+				}
 			}
 
 			int32_t differenceAbs = getTotalDifferenceAbs(oldHeadTotals, newHeadRunningTotals);
@@ -694,14 +712,20 @@ startSearch:
 					uint32_t lastTotalDifferenceAbs = std::abs(lastTotalChange);
 					additionalOscPos = ((uint64_t)lastTotalDifferenceAbs << 24)
 					                   / (uint32_t)(lastTotalDifferenceAbs + thisTotalDifferenceAbs);
-					if (searchDirection == -1) additionalOscPos = 16777216 - additionalOscPos;
-					if (thisOffsetIsBestMatch != (searchDirection == -1)) bestOffset--;
+					if (searchDirection == -1) {
+						additionalOscPos = 16777216 - additionalOscPos;
+					}
+					if (thisOffsetIsBestMatch != (searchDirection == -1)) {
+						bestOffset--;
+					}
 				}
 
 				// After sign has flipped twice (in total, including both search directions), we can be fairly sure we've found a good fit
 				timesSignFlipped++;
 #if !MEASURE_HOP_END_PERFORMANCE
-				if (timesSignFlipped >= 2) goto stopSearch;
+				if (timesSignFlipped >= 2) {
+					goto stopSearch;
+				}
 #endif
 			}
 
@@ -746,7 +770,7 @@ stopSearch:
 	if (phaseIncrement == 16777216) {
 		playHeads[PLAY_HEAD_NEWER].mode = PLAY_HEAD_MODE_RAW_DIRECT;
 		playHeads[PLAY_HEAD_NEWER].rawBufferReadPos = numRawSamplesProcessedAtNowTime & (INPUT_RAW_BUFFER_SIZE - 1);
-		Uart::println("raw hop");
+		Debug::println("raw hop");
 	}
 
 	else {
@@ -756,8 +780,8 @@ stopSearch:
 		playHeads[PLAY_HEAD_NEWER].fillInterpolationBuffer(liveInputBuffer, numChannels);
 		playHeads[PLAY_HEAD_NEWER].oscPos = additionalOscPos;
 
-		//Uart::print("playing from: ");
-		//Uart::println(playHeads[PLAY_HEAD_NEWER].rawBufferReadPos);
+		//Debug::print("playing from: ");
+		//Debug::println(playHeads[PLAY_HEAD_NEWER].rawBufferReadPos);
 	}
 
 thatsDone:
@@ -772,8 +796,8 @@ thatsDone:
 		crossfadeProgress = 16777216;
 	}
 
-	//Uart::print("crossfade length: ");
-	//Uart::println(thisCrossfadeLength);
+	//Debug::print("crossfade length: ");
+	//Debug::println(thisCrossfadeLength);
 
 	/*
 	if (phaseIncrement > 16777216) {
@@ -803,8 +827,8 @@ thatsDone:
 #if MEASURE_HOP_END_PERFORMANCE
 	uint16_t endTime = MTU2.TCNT_0;
 	uint16_t timeTaken = endTime - startTime;
-	Uart::print("hop end time: ");
-	Uart::println(timeTaken);
+	Debug::print("hop end time: ");
+	Debug::println(timeTaken);
 #endif
 }
 

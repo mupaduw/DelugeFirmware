@@ -26,13 +26,13 @@
 #include "model/instrument/instrument.h"
 #include "hid/display/numeric_driver.h"
 #include "hid/matrix/matrix_driver.h"
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 #include "gui/views/view.h"
 #include "storage/storage_manager.h"
 #include "gui/ui/keyboard_screen.h"
 #include "model/action/action_logger.h"
 #include "model/instrument/midi_instrument.h"
-#include "gui/context_menu/context_menu_load_instrument_preset.h"
+#include "gui/context_menu/load_instrument_preset.h"
 #include "hid/led/pad_leds.h"
 #include "hid/led/indicator_leds.h"
 #include "hid/encoders.h"
@@ -43,9 +43,7 @@
 #include "hid/display/oled.h"
 #include "processing/engines/audio_engine.h"
 
-extern "C" {
-#include "drivers/uart/uart.h"
-}
+using namespace deluge;
 
 LoadInstrumentPresetUI loadInstrumentPresetUI{};
 
@@ -54,11 +52,7 @@ LoadInstrumentPresetUI::LoadInstrumentPresetUI() {
 
 bool LoadInstrumentPresetUI::getGreyoutRowsAndCols(uint32_t* cols, uint32_t* rows) {
 	if (showingAuditionPads()) {
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-		*cols = 0xFFFFFFFE;
-#else
 		*cols = 0b10;
-#endif
 	}
 	else {
 		*cols = 0xFFFFFFFF;
@@ -68,7 +62,9 @@ bool LoadInstrumentPresetUI::getGreyoutRowsAndCols(uint32_t* cols, uint32_t* row
 
 bool LoadInstrumentPresetUI::opened() {
 
-	if (getRootUI() == &keyboardScreen) PadLEDs::skipGreyoutFade();
+	if (getRootUI() == &keyboardScreen) {
+		PadLEDs::skipGreyoutFade();
+	}
 
 	initialInstrumentType = instrumentToReplace->type;
 	initialName.set(&instrumentToReplace->name);
@@ -113,16 +109,16 @@ gotError:
 
 // If HAVE_OLED, then you should make sure renderUIsForOLED() gets called after this.
 int LoadInstrumentPresetUI::setupForInstrumentType() {
-	IndicatorLEDs::setLedState(synthLedX, synthLedY, false);
-	IndicatorLEDs::setLedState(kitLedX, kitLedY, false);
-	IndicatorLEDs::setLedState(midiLedX, midiLedY, false);
-	IndicatorLEDs::setLedState(cvLedX, cvLedY, false);
+	indicator_leds::setLedState(IndicatorLED::SYNTH, false);
+	indicator_leds::setLedState(IndicatorLED::KIT, false);
+	indicator_leds::setLedState(IndicatorLED::MIDI, false);
+	indicator_leds::setLedState(IndicatorLED::CV, false);
 
 	if (instrumentTypeToLoad == INSTRUMENT_TYPE_SYNTH) {
-		IndicatorLEDs::blinkLed(synthLedX, synthLedY);
+		indicator_leds::blinkLed(IndicatorLED::SYNTH);
 	}
 	else {
-		IndicatorLEDs::blinkLed(kitLedX, kitLedY);
+		indicator_leds::blinkLed(IndicatorLED::KIT);
 	}
 
 #if HAVE_OLED
@@ -148,7 +144,9 @@ int LoadInstrumentPresetUI::setupForInstrumentType() {
 		currentDir.set(&instrumentToReplace->dirPath);
 		searchFilename.set(&instrumentToReplace->name);
 
-		if (currentDir.isEmpty()) goto useDefaultFolder;
+		if (currentDir.isEmpty()) {
+			goto useDefaultFolder;
+		}
 	}
 
 	// Or if the Instruments are different types...
@@ -160,32 +158,38 @@ int LoadInstrumentPresetUI::setupForInstrumentType() {
 			enteredText.set(backedUpName);
 			searchFilename.set(backedUpName);
 			currentDir.set(&instrumentClipToLoadFor->backedUpInstrumentDirPath[instrumentTypeToLoad]);
-			if (currentDir.isEmpty()) goto useDefaultFolder;
+			if (currentDir.isEmpty()) {
+				goto useDefaultFolder;
+			}
 		}
 		// Otherwise we just start with nothing. currentSlot etc remain set to "zero" from before
 		else {
 useDefaultFolder:
 			int error = currentDir.set(defaultDir);
-			if (error) return error;
+			if (error) {
+				return error;
+			}
 		}
 	}
 
 	if (!searchFilename.isEmpty()) {
 		int error = searchFilename.concatenate(".XML");
-		if (error) return error;
+		if (error) {
+			return error;
+		}
 	}
 
 	int error = arrivedInNewFolder(0, searchFilename.get(), defaultDir);
-	if (error) return error;
+	if (error) {
+		return error;
+	}
 
 	currentInstrumentLoadError = (fileIndexSelected >= 0) ? NO_ERROR : ERROR_UNSPECIFIED;
 
 	// The redrawing of the sidebar only actually has to happen if we just changed to a different type *or* if we came in from (musical) keyboard view, I think
-#if DELUGE_MODEL != DELUGE_MODEL_40_PAD
 	PadLEDs::clearAllPadsWithoutSending();
 	drawKeys();
 	PadLEDs::sendOutMainPadColours();
-#endif
 
 	if (showingAuditionPads()) {
 		instrumentClipView.recalculateColours();
@@ -216,7 +220,9 @@ void LoadInstrumentPresetUI::currentFileChanged(int movementDirection) {
 void LoadInstrumentPresetUI::enterKeyPress() {
 
 	FileItem* currentFileItem = getCurrentFileItem();
-	if (!currentFileItem) return;
+	if (!currentFileItem) {
+		return;
+	}
 
 	// If it's a directory...
 	if (currentFileItem->isFolder) {
@@ -254,32 +260,33 @@ void LoadInstrumentPresetUI::enterKeyPress() {
 	}
 }
 
-int LoadInstrumentPresetUI::buttonAction(int x, int y, bool on, bool inCardRoutine) {
+int LoadInstrumentPresetUI::buttonAction(hid::Button b, bool on, bool inCardRoutine) {
+	using namespace hid::button;
 
 	int newInstrumentType;
 
 	// Load button
-	if (x == loadButtonX && y == loadButtonY) {
+	if (b == LOAD) {
 		return mainButtonAction(on);
 	}
 
 	// Synth button
-	else if (x == synthButtonX && y == synthButtonY) {
+	else if (b == SYNTH) {
 		newInstrumentType = INSTRUMENT_TYPE_SYNTH;
 doChangeInstrumentType:
 		if (on && currentUIMode == UI_MODE_NONE) {
-			if (inCardRoutine) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			if (inCardRoutine) {
+				return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
 			convertToPrefixFormatIfPossible(); // Why did I put this here?
 			changeInstrumentType(newInstrumentType);
 		}
 	}
 
 	// Kit button
-	else if (x == kitButtonX && y == kitButtonY) {
+	else if (b == KIT) {
 		if (instrumentClipToLoadFor && instrumentClipToLoadFor->onKeyboardScreen) {
-#if DELUGE_MODEL != DELUGE_MODEL_40_PAD
-			IndicatorLEDs::indicateAlertOnLed(keyboardLedX, keyboardLedX);
-#endif
+			indicator_leds::indicateAlertOnLed(IndicatorLED::KEYBOARD);
 		}
 		else {
 			newInstrumentType = INSTRUMENT_TYPE_KIT;
@@ -288,18 +295,20 @@ doChangeInstrumentType:
 	}
 
 	// MIDI button
-	else if (x == midiButtonX && y == midiButtonY) {
+	else if (b == MIDI) {
 		newInstrumentType = INSTRUMENT_TYPE_MIDI_OUT;
 		goto doChangeInstrumentType;
 	}
 
 	// CV button
-	else if (x == cvButtonX && y == cvButtonY) {
+	else if (b == CV) {
 		newInstrumentType = INSTRUMENT_TYPE_CV;
 		goto doChangeInstrumentType;
 	}
 
-	else return LoadUI::buttonAction(x, y, on, inCardRoutine);
+	else {
+		return LoadUI::buttonAction(b, on, inCardRoutine);
+	}
 
 	return ACTION_RESULT_DEALT_WITH;
 }
@@ -307,20 +316,26 @@ doChangeInstrumentType:
 int LoadInstrumentPresetUI::timerCallback() {
 	if (currentUIMode == UI_MODE_HOLDING_BUTTON_POTENTIAL_LONG_PRESS) {
 
-		if (sdRoutineLock) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE; // The below needs to access the card.
+		if (sdRoutineLock) {
+			return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE; // The below needs to access the card.
+		}
 
 		currentUIMode = UI_MODE_NONE;
 
 		FileItem* currentFileItem = getCurrentFileItem();
 
 		// Folders don't have a context menu
-		if (!currentFileItem || currentFileItem->isFolder) return ACTION_RESULT_DEALT_WITH;
+		if (!currentFileItem || currentFileItem->isFolder) {
+			return ACTION_RESULT_DEALT_WITH;
+		}
 
 		// We want to open the context menu to choose to reload the original file for the currently selected preset in some way.
 		// So first up, make sure there is a file, and that we've got its pointer
 		String filePath;
 		int error = getCurrentFilePath(&filePath);
-		if (error) return error;
+		if (error) {
+			return error;
+		}
 
 		bool fileExists = storageManager.fileExists(filePath.get(), &currentFileItem->filePointer);
 		if (!fileExists) {
@@ -328,12 +343,12 @@ int LoadInstrumentPresetUI::timerCallback() {
 			return ACTION_RESULT_DEALT_WITH;
 		}
 
-		bool available = contextMenuLoadInstrumentPreset.setupAndCheckAvailability();
+		bool available = gui::context_menu::loadInstrumentPreset.setupAndCheckAvailability();
 
 		if (available) {
 			numericDriver.setNextTransitionDirection(1);
 			convertToPrefixFormatIfPossible();
-			openUI(&contextMenuLoadInstrumentPreset);
+			openUI(&gui::context_menu::loadInstrumentPreset);
 		}
 		else {
 			exitUIMode(UI_MODE_HOLDING_BUTTON_POTENTIAL_LONG_PRESS);
@@ -347,7 +362,9 @@ int LoadInstrumentPresetUI::timerCallback() {
 }
 
 void LoadInstrumentPresetUI::changeInstrumentType(int newInstrumentType) {
-	if (newInstrumentType == instrumentTypeToLoad) return;
+	if (newInstrumentType == instrumentTypeToLoad) {
+		return;
+	}
 
 	// If MIDI or CV, we have a different method for this, and the UI will be exited
 	if (newInstrumentType == INSTRUMENT_TYPE_MIDI_OUT || newInstrumentType == INSTRUMENT_TYPE_CV) {
@@ -412,7 +429,9 @@ void LoadInstrumentPresetUI::revertToInitialPreset() {
 	// Very often, the user might enter this interface for a Clip sharing its Output/Instrument with other Clips, so when
 	// user starts navigating through presets, it'll first do a "change just for Clip", but then on the new preset, this will now
 	// be the only Clip, so next time it'll do a "replace whole Instrument".
-	if (changedInstrumentForClip == replacedWholeInstrument) return;
+	if (changedInstrumentForClip == replacedWholeInstrument) {
+		return;
+	}
 
 	int availabilityRequirement;
 	bool oldInstrumentCanBeReplaced;
@@ -427,7 +446,9 @@ void LoadInstrumentPresetUI::revertToInitialPreset() {
 	}
 
 	// If we're looking to replace the whole Instrument, but we're not allowed, that's obviously a no-go
-	if (replacedWholeInstrument && !oldInstrumentCanBeReplaced) return;
+	if (replacedWholeInstrument && !oldInstrumentCanBeReplaced) {
+		return;
+	}
 
 	bool needToAddInstrumentToSong = false;
 
@@ -464,13 +485,17 @@ void LoadInstrumentPresetUI::revertToInitialPreset() {
 			// One MIDIInstrument may be hibernating...
 			if (initialInstrumentType == INSTRUMENT_TYPE_MIDI_OUT) {
 				initialInstrument = currentSong->grabHibernatingMIDIInstrument(initialChannel, initialChannelSuffix);
-				if (initialInstrument) goto gotAnInstrument;
+				if (initialInstrument) {
+					goto gotAnInstrument;
+				}
 			}
 
 			// Otherwise, create a new one
 			initialInstrument =
 			    storageManager.createNewNonAudioInstrument(initialInstrumentType, initialChannel, initialChannelSuffix);
-			if (!initialInstrument) return;
+			if (!initialInstrument) {
+				return;
+			}
 		}
 
 		// Synth / kit...
@@ -497,17 +522,23 @@ void LoadInstrumentPresetUI::revertToInitialPreset() {
 				// Try getting from file
 				String filePath;
 				int error = getCurrentFilePath(&filePath);
-				if (error) return;
+				if (error) {
+					return;
+				}
 
 				FilePointer tempFilePointer;
 
 				bool success = storageManager.fileExists(filePath.get(), &tempFilePointer);
-				if (!success) return;
+				if (!success) {
+					return;
+				}
 
 				error = storageManager.loadInstrumentFromFile(currentSong, instrumentClipToLoadFor,
 				                                              initialInstrumentType, false, &initialInstrument,
 				                                              &tempFilePointer, &initialName, &initialDirPath);
-				if (error) return;
+				if (error) {
+					return;
+				}
 			}
 
 			initialInstrument->loadAllAudioFiles(true);
@@ -551,7 +582,9 @@ gotAnInstrument:
 
 bool LoadInstrumentPresetUI::isInstrumentInList(Instrument* searchInstrument, Output* list) {
 	while (list) {
-		if (list == searchInstrument) return true;
+		if (list == searchInstrument) {
+			return true;
+		}
 		list = list->next;
 	}
 	return false;
@@ -577,25 +610,35 @@ doSlotNumber:
 		buffer[3] = 0;
 		buffer[4] = 0;
 		int slotNumber = stringToUIntOrError(buffer);
-		if (slotNumber < 0) goto nonNumeric;
+		if (slotNumber < 0) {
+			goto nonNumeric;
+		}
 
 		while (true) {
 			// Try next subSlot up
 			subSlot++;
 
 			// If reached end of alphabet/subslots, try next number up.
-			if (subSlot >= 26) goto tryWholeNewSlotNumbers;
+			if (subSlot >= 26) {
+				goto tryWholeNewSlotNumbers;
+			}
 
 			buffer[3] = 'A' + subSlot;
 
 			int i = fileItems.search(buffer);
-			if (i >= fileItems.getNumElements()) break;
+			if (i >= fileItems.getNumElements()) {
+				break;
+			}
 
 			FileItem* fileItem = (FileItem*)fileItems.getElementAddress(i);
 			char const* fileItemNameChars = fileItem->filename.get();
 			if (!memcasecmp(buffer, fileItemNameChars, 4)) {
-				if (fileItemNameChars[4] == 0) continue;
-				if (fileItemNameChars[4] == '.' && fileItem->filenameIncludesExtension) continue;
+				if (fileItemNameChars[4] == 0) {
+					continue;
+				}
+				if (fileItemNameChars[4] == '.' && fileItem->filenameIncludesExtension) {
+					continue;
+				}
 			}
 			break;
 		}
@@ -611,13 +654,19 @@ tryWholeNewSlotNumbers:
 				intToString(slotNumber, buffer, 3);
 
 				int i = fileItems.search(buffer);
-				if (i >= fileItems.getNumElements()) break;
+				if (i >= fileItems.getNumElements()) {
+					break;
+				}
 
 				FileItem* fileItem = (FileItem*)fileItems.getElementAddress(i);
 				char const* fileItemNameChars = fileItem->filename.get();
 				if (!memcasecmp(buffer, fileItemNameChars, 4)) {
-					if (fileItemNameChars[4] == 0) continue;
-					if (fileItemNameChars[4] == '.' && fileItem->filenameIncludesExtension) continue;
+					if (fileItemNameChars[4] == 0) {
+						continue;
+					}
+					if (fileItemNameChars[4] == '.' && fileItem->filenameIncludesExtension) {
+						continue;
+					}
 				}
 				break;
 			}
@@ -627,9 +676,15 @@ tryWholeNewSlotNumbers:
 	}
 	else if (oldNameLength == 4) {
 		char subSlotChar = oldNameChars[3];
-		if (subSlotChar >= 'a' && subSlotChar <= 'z') subSlot = subSlotChar - 'a';
-		else if (subSlotChar >= 'A' && subSlotChar <= 'Z') subSlot = subSlotChar - 'A';
-		else goto nonNumeric;
+		if (subSlotChar >= 'a' && subSlotChar <= 'z') {
+			subSlot = subSlotChar - 'a';
+		}
+		else if (subSlotChar >= 'A' && subSlotChar <= 'Z') {
+			subSlot = subSlotChar - 'A';
+		}
+		else {
+			goto nonNumeric;
+		}
 
 		goto doSlotNumber;
 	}
@@ -661,7 +716,9 @@ lookAtSuffixNumber:
 		}
 		else {
 			underscoreAddress = strrchr(oldNameChars, '_');
-			if (underscoreAddress) goto lookAtSuffixNumber;
+			if (underscoreAddress) {
+				goto lookAtSuffixNumber;
+			}
 		}
 
 		numberStartPos = oldNameLength + 1;
@@ -674,14 +731,20 @@ addNumber:
 			char const* newNameChars = newName->get();
 
 			int i = fileItems.search(newNameChars);
-			if (i >= fileItems.getNumElements()) break;
+			if (i >= fileItems.getNumElements()) {
+				break;
+			}
 
 			FileItem* fileItem = (FileItem*)fileItems.getElementAddress(i);
 			char const* fileItemNameChars = fileItem->filename.get();
 			int newNameLength = strlen(newNameChars);
 			if (!memcasecmp(newNameChars, fileItemNameChars, newNameLength)) {
-				if (fileItemNameChars[newNameLength] == 0) continue;
-				if (fileItemNameChars[newNameLength] == '.' && fileItem->filenameIncludesExtension) continue;
+				if (fileItemNameChars[newNameLength] == 0) {
+					continue;
+				}
+				if (fileItemNameChars[newNameLength] == '.' && fileItem->filenameIncludesExtension) {
+					continue;
+				}
 			}
 
 			break;
@@ -695,12 +758,19 @@ addNumber:
 int LoadInstrumentPresetUI::performLoad(bool doClone) {
 
 	FileItem* currentFileItem = getCurrentFileItem();
-	if (!currentFileItem) return ERROR_UNSPECIFIED;
+	if (!currentFileItem) {
+		return HAVE_OLED
+		           ? ERROR_FILE_NOT_FOUND
+		           : ERROR_NO_FURTHER_FILES_THIS_DIRECTION; // Make it say "NONE" on numeric Deluge, for consistency with old times.
+	}
 
-	if (currentFileItem->isFolder) return NO_ERROR;
-	if (currentFileItem->instrument == instrumentToReplace && !doClone)
+	if (currentFileItem->isFolder) {
+		return NO_ERROR;
+	}
+	if (currentFileItem->instrument == instrumentToReplace && !doClone) {
 		return NO_ERROR; // Happens if navigate over a folder's name (Instrument stays the same),
-		    // then back onto that neighbouring Instrument - you'd incorrectly get a "USED" error without this line.
+	}
+	// then back onto that neighbouring Instrument - you'd incorrectly get a "USED" error without this line.
 
 	// Work out availabilityRequirement. This can't change as presets are navigated through... I don't think?
 	int availabilityRequirement;
@@ -753,14 +823,18 @@ giveUsedError:
 
 		if (doClone) {
 			bool success = findUnusedSlotVariation(&enteredText, &clonedName);
-			if (!success) return ERROR_UNSPECIFIED;
+			if (!success) {
+				return ERROR_UNSPECIFIED;
+			}
 		}
 
 		int error = storageManager.loadInstrumentFromFile(currentSong, instrumentClipToLoadFor, instrumentTypeToLoad,
 		                                                  false, &newInstrument, &currentFileItem->filePointer,
 		                                                  &enteredText, &currentDir);
 
-		if (error) return error;
+		if (error) {
+			return error;
+		}
 
 		shouldReplaceWholeInstrument = oldInstrumentCanBeReplaced;
 		needToAddInstrumentToSong = true;
@@ -787,7 +861,9 @@ giveUsedError:
 	// If error, most likely because user interrupted sample loading process...
 	if (error) {
 		// Probably need to do some cleaning up of the new Instrument
-		if (loadedFromFile) currentSong->deleteOutput(newInstrument);
+		if (loadedFromFile) {
+			currentSong->deleteOutput(newInstrument);
+		}
 
 		return error;
 	}
@@ -874,9 +950,13 @@ int LoadInstrumentPresetUI::padAction(int x, int y, int on) {
 
 	// Audition pad
 	if (x == displayWidth + 1) {
-		if (!showingAuditionPads()) goto potentiallyExit;
+		if (!showingAuditionPads()) {
+			goto potentiallyExit;
+		}
 		if (currentInstrumentLoadError) {
-			if (on) numericDriver.displayError(currentInstrumentLoadError);
+			if (on) {
+				numericDriver.displayError(currentInstrumentLoadError);
+			}
 		}
 		else {
 			return instrumentClipView.padAction(x, y, on);
@@ -887,17 +967,15 @@ int LoadInstrumentPresetUI::padAction(int x, int y, int on) {
 	else if (x == displayWidth) {
 potentiallyExit:
 		if (on && !currentUIMode) {
-			if (sdRoutineLock) return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			if (sdRoutineLock) {
+				return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
 			exitAction();
 		}
 	}
 
 	else {
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-		goto potentiallyExit;
-#else
 		return LoadUI::padAction(x, y, on);
-#endif
 	}
 
 	return ACTION_RESULT_DEALT_WITH;
@@ -905,12 +983,15 @@ potentiallyExit:
 
 int LoadInstrumentPresetUI::verticalEncoderAction(int offset, bool inCardRoutine) {
 	if (showingAuditionPads()) {
-		if (Buttons::isShiftButtonPressed() || Buttons::isButtonPressed(xEncButtonX, xEncButtonY))
+		if (Buttons::isShiftButtonPressed() || Buttons::isButtonPressed(hid::button::X_ENC)) {
 			return ACTION_RESULT_DEALT_WITH;
+		}
 
 		int result = instrumentClipView.verticalEncoderAction(offset, inCardRoutine);
 
-		if (result == ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE) return result;
+		if (result == ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE) {
+			return result;
+		}
 
 		if (getRootUI() == &keyboardScreen) {
 			uiNeedsRendering(this, 0, 0xFFFFFFFF);
@@ -924,7 +1005,9 @@ int LoadInstrumentPresetUI::verticalEncoderAction(int offset, bool inCardRoutine
 
 bool LoadInstrumentPresetUI::renderSidebar(uint32_t whichRows, uint8_t image[][displayWidth + sideBarWidth][3],
                                            uint8_t occupancyMask[][displayWidth + sideBarWidth]) {
-	if (getRootUI() != &keyboardScreen) return false;
+	if (getRootUI() != &keyboardScreen) {
+		return false;
+	}
 	return instrumentClipView.renderSidebar(whichRows, image, occupancyMask);
 }
 
@@ -995,7 +1078,9 @@ noFurtherFiles:
 	String lastFileItemDisplayNameBeforeFiltering;
 	FileItem* rightmostFileItemBeforeFiltering = (FileItem*)fileItems.getElementAddress(fileItems.getNumElements() - 1);
 	toReturn.error = lastFileItemDisplayNameBeforeFiltering.set(rightmostFileItemBeforeFiltering->displayName);
-	if (toReturn.error) goto doReturn;
+	if (toReturn.error) {
+		goto doReturn;
+	}
 
 	deleteFolderAndDuplicateItems(availabilityRequirement);
 
@@ -1017,7 +1102,9 @@ noFurtherFiles:
 		}
 
 		// Ok, we've looked at every file, and none were presets we could use. So now we want to look in subfolders. Do we still have the "start" of our folder's contents in memory?
-		if (numFileItemsDeletedAtStart) goto startDoingFolders;
+		if (numFileItemsDeletedAtStart) {
+			goto startDoingFolders;
+		}
 
 		doingSubfolders = true;
 	}
@@ -1034,7 +1121,9 @@ noFurtherFiles:
 		searchNameLocalCopy.set(&lastFileItemDisplayNameBeforeFiltering);
 		goto goAgain;
 	}
-	else goto noFurtherFiles;
+	else {
+		goto noFurtherFiles;
+	}
 
 	if (false) {
 doThisFolder:
@@ -1042,9 +1131,13 @@ doThisFolder:
 		searchNameLocalCopy.set(toReturn.fileItem->displayName);
 
 		toReturn.error = currentDir.concatenate("/");
-		if (toReturn.error) goto emptyFileItemsAndReturn;
+		if (toReturn.error) {
+			goto emptyFileItemsAndReturn;
+		}
 		toReturn.error = currentDir.concatenate(&toReturn.fileItem->filename);
-		if (toReturn.error) goto emptyFileItemsAndReturn;
+		if (toReturn.error) {
+			goto emptyFileItemsAndReturn;
+		}
 
 		// Call self
 		toReturn = findAnUnlaunchedPresetIncludingWithinSubfolders(song, instrumentType, availabilityRequirement);
@@ -1053,9 +1146,13 @@ doThisFolder:
 				currentDir.shorten(initialDirLength);
 				goto goAgain;
 			}
-			else goto doReturn;
+			else {
+				goto doReturn;
+			}
 		}
-		else if (toReturn.error) goto emptyFileItemsAndReturn;
+		else if (toReturn.error) {
+			goto emptyFileItemsAndReturn;
+		}
 
 		// If still here, the recursive call found something, so return.
 		goto doReturn;
@@ -1082,7 +1179,9 @@ doReadFiles:
 	if (toReturn.error == ERROR_FOLDER_DOESNT_EXIST) {
 justGetAnyPreset: // This does *not* favour the currentDir, so you should exhaust all avenues before calling this.
 		toReturn.error = currentDir.set(getInstrumentFolder(instrumentType));
-		if (toReturn.error) goto doReturn;
+		if (toReturn.error) {
+			goto doReturn;
+		}
 		toReturn =
 		    findAnUnlaunchedPresetIncludingWithinSubfolders(currentSong, instrumentType, availabilityRequirement);
 		goto doReturn;
@@ -1113,7 +1212,9 @@ needToGrabLeftmostButHaveToReadFirst:
 	String lastFileItemDisplayNameBeforeFiltering;
 	FileItem* rightmostFileItemBeforeFiltering = (FileItem*)fileItems.getElementAddress(fileItems.getNumElements() - 1);
 	toReturn.error = lastFileItemDisplayNameBeforeFiltering.set(rightmostFileItemBeforeFiltering->displayName);
-	if (toReturn.error) goto doReturn;
+	if (toReturn.error) {
+		goto doReturn;
+	}
 
 	deleteFolderAndDuplicateItems(availabilityRequirement);
 
@@ -1180,7 +1281,9 @@ readAgainWithSameOffset:
 	    readFileItemsForFolder(getThingName(instrumentType), false, allowedFileExtensionsXML, oldNameString.get(),
 	                           FILE_ITEMS_MAX_NUM_ELEMENTS_FOR_NAVIGATION, newCatalogSearchDirection);
 
-	if (toReturn.error) goto doReturn;
+	if (toReturn.error) {
+		goto doReturn;
+	}
 
 	AudioEngine::logAction("doPresetNavigation2");
 
@@ -1213,8 +1316,9 @@ noErrorButGetOut:
 		}
 	}
 	else if (fileItems.getNumElements() == 1
-	         && ((FileItem*)fileItems.getElementAddress(0))->instrument == oldInstrument)
+	         && ((FileItem*)fileItems.getElementAddress(0))->instrument == oldInstrument) {
 		goto reachedEnd;
+	}
 
 	int i = (offset >= 0) ? 0 : (fileItems.getNumElements() - 1);
 	/*
@@ -1256,7 +1360,7 @@ moveAgain:
 			if (numFileItemsDeletedAtEnd) {
 searchFromOneEnd:
 				oldNameString.clear();
-				uartPrintln("reloading and wrap");
+				Debug::println("reloading and wrap");
 				goto readAgain;
 			}
 			else {
@@ -1291,9 +1395,13 @@ doneMoving:
 	}
 	else {
 		toReturn.error = toReturn.fileItem->getDisplayNameWithoutExtension(&newName);
-		if (toReturn.error) goto emptyFileItemsAndReturn;
+		if (toReturn.error) {
+			goto emptyFileItemsAndReturn;
+		}
 		toReturn.error = oldNameString.set(toReturn.fileItem->displayName);
-		if (toReturn.error) goto emptyFileItemsAndReturn;
+		if (toReturn.error) {
+			goto emptyFileItemsAndReturn;
+		}
 		view.drawOutputNameFromDetails(instrumentType, 0, 0, newName.get(), false, doBlink);
 	}
 
@@ -1302,7 +1410,7 @@ doneMoving:
 #endif
 
 	if (Encoders::encoders[ENCODER_SELECT].detentPos) {
-		Uart::println("go again 1 --------------------------");
+		Debug::println("go again 1 --------------------------");
 
 doPendingPresetNavigation:
 		offset = Encoders::encoders[ENCODER_SELECT].getLimitedDetentPosAndReset();
@@ -1320,12 +1428,14 @@ doPendingPresetNavigation:
 		toReturn.error = storageManager.loadInstrumentFromFile(
 		    currentSong, NULL, instrumentType, false, &toReturn.fileItem->instrument, &toReturn.fileItem->filePointer,
 		    &newName, &Browser::currentDir);
-		if (toReturn.error) goto emptyFileItemsAndReturn;
+		if (toReturn.error) {
+			goto emptyFileItemsAndReturn;
+		}
 
 		toReturn.loadedFromFile = true;
 
 		if (Encoders::encoders[ENCODER_SELECT].detentPos) {
-			Uart::println("go again 2 --------------------------");
+			Debug::println("go again 2 --------------------------");
 			goto doPendingPresetNavigation;
 		}
 	}
@@ -1344,11 +1454,13 @@ doPendingPresetNavigation:
 
 	// If user wants to move on...
 	if (Encoders::encoders[ENCODER_SELECT].detentPos) {
-		Uart::println("go again 3 --------------------------");
+		Debug::println("go again 3 --------------------------");
 		goto doPendingPresetNavigation;
 	}
 
-	if (isHibernating) currentSong->removeInstrumentFromHibernationList(toReturn.fileItem->instrument);
+	if (isHibernating) {
+		currentSong->removeInstrumentFromHibernationList(toReturn.fileItem->instrument);
+	}
 
 	goto doReturn;
 }

@@ -25,13 +25,14 @@
 #include <string.h>
 #include "gui/views/session_view.h"
 #include "playback/playback_handler.h"
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 #include "memory/general_memory_allocator.h"
 #include "gui/views/view.h"
 #include "model/timeline_counter.h"
 #include "model/song/song.h"
 #include "model/model_stack.h"
 #include "io/midi/midi_device.h"
+#include "io/midi/midi_engine.h"
 #include "model/clip/instrument_clip.h"
 #include "model/note/note_row.h"
 #include "modulation/params/param_set.h"
@@ -146,7 +147,9 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 			           * 23; // 22 // Make bigger to have more of a volume cut happen at high resonance
 			//*postFXVolume = (multiply_32x32_rshift32(*postFXVolume, 2147483647 - squared2) >> 1) * 3;
 			*postFXVolume = multiply_32x32_rshift32(*postFXVolume, 2147483647 - squared2);
-			if (modFXType == MOD_FX_TYPE_FLANGER) *postFXVolume <<= 1;
+			if (modFXType == MOD_FX_TYPE_FLANGER) {
+				*postFXVolume <<= 1;
+			}
 			// Though, this would be more ideally placed affecting volume before the flanger
 
 			if (modFXType == MOD_FX_TYPE_FLANGER) {
@@ -281,7 +284,9 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 			delay.userRateLastTime = delayWorkingState->userDelayRate;
 			delay.countCyclesWithoutChange = 0;
 		}
-		else delay.countCyclesWithoutChange += numSamples;
+		else {
+			delay.countCyclesWithoutChange += numSamples;
+		}
 
 		// If just a single buffer is being used for reading and writing, we can consider making a 2nd buffer
 		if (!delay.secondaryBuffer.isActive()) {
@@ -292,7 +297,7 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 
 				// If delay speed has settled for a split second...
 				if (delay.countCyclesWithoutChange >= (44100 >> 5)) {
-					//Uart::println("settling");
+					//Debug::println("settling");
 					initializeSecondaryDelayBuffer(delayWorkingState->userDelayRate, true);
 				}
 
@@ -373,7 +378,9 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 					int32_t primaryStrength1 = 65536 - primaryStrength2;
 
 					StereoSample* nextPos = delay.primaryBuffer.bufferCurrentPos + 1;
-					if (nextPos == delay.primaryBuffer.bufferEnd) nextPos = delay.primaryBuffer.bufferStart;
+					if (nextPos == delay.primaryBuffer.bufferEnd) {
+						nextPos = delay.primaryBuffer.bufferStart;
+					}
 					int32_t fromDelay1L = delay.primaryBuffer.bufferCurrentPos->l;
 					int32_t fromDelay1R = delay.primaryBuffer.bufferCurrentPos->r;
 					int32_t fromDelay2L = nextPos->l;
@@ -517,7 +524,9 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 				int32_t* workingBufferPos = delayWorkingBuffer;
 
 				StereoSample* writePos = primaryBufferOldPos - delaySpaceBetweenReadAndWrite;
-				if (writePos < delay.primaryBuffer.bufferStart) writePos += delay.primaryBuffer.sizeIncludingExtra;
+				if (writePos < delay.primaryBuffer.bufferStart) {
+					writePos += delay.primaryBuffer.sizeIncludingExtra;
+				}
 
 				do {
 					delay.primaryBuffer.writeNativeAndMoveOn(workingBufferPos[0], workingBufferPos[1], &writePos);
@@ -672,7 +681,9 @@ void ModControllableAudio::processReverbSendAndVolume(StereoSample* buffer, int 
 	} while (++inputSample != bufferEnd);
 
 	// We've generated some sound. If reverb is happening, make note
-	if (reverbSendAmount != 0) AudioEngine::timeThereWasLastSomeReverb = AudioEngine::audioSampleTimer;
+	if (reverbSendAmount != 0) {
+		AudioEngine::timeThereWasLastSomeReverb = AudioEngine::audioSampleTimer;
+	}
 }
 
 bool ModControllableAudio::isBitcrushingEnabled(ParamManager* paramManager) {
@@ -697,7 +708,9 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 	if (isBitcrushingEnabled(paramManager)) {
 		uint32_t positivePreset =
 		    (paramManager->getUnpatchedParamSet()->getValue(PARAM_UNPATCHED_BITCRUSHING) + 2147483648) >> 29;
-		if (positivePreset > 4) *postFXVolume >>= (positivePreset - 4);
+		if (positivePreset > 4) {
+			*postFXVolume >>= (positivePreset - 4);
+		}
 
 		// If not also doing SRR
 		if (!srrEnabled) {
@@ -709,7 +722,9 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 			} while (++currentSample != bufferEnd);
 		}
 
-		else bitCrushMaskForSRR = 0xFFFFFFFF << (18 + (positivePreset));
+		else {
+			bitCrushMaskForSRR = 0xFFFFFFFF << (18 + (positivePreset));
+		}
 	}
 
 	// Sample rate reduction -------------------------------------------------------------------------------------
@@ -774,11 +789,15 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 			highSampleRatePos += highSampleRateIncrement;
 		} while (++currentSample != bufferEnd);
 	}
-	else sampleRateReductionOnLastTime = false;
+	else {
+		sampleRateReductionOnLastTime = false;
+	}
 }
 
 void ModControllableAudio::processStutter(StereoSample* buffer, int numSamples, ParamManager* paramManager) {
-	if (stutterer.status == STUTTERER_STATUS_OFF) return;
+	if (stutterer.status == STUTTERER_STATUS_OFF) {
+		return;
+	}
 
 	StereoSample* bufferEnd = buffer + numSamples;
 
@@ -868,7 +887,9 @@ void ModControllableAudio::processStutter(StereoSample* buffer, int numSamples, 
 				strength1 = 65536 - strength2;
 
 				StereoSample* nextPos = stutterer.buffer.bufferCurrentPos + 1;
-				if (nextPos == stutterer.buffer.bufferEnd) nextPos = stutterer.buffer.bufferStart;
+				if (nextPos == stutterer.buffer.bufferEnd) {
+					nextPos = stutterer.buffer.bufferStart;
+				}
 				int32_t fromDelay1L = stutterer.buffer.bufferCurrentPos->l;
 				int32_t fromDelay1R = stutterer.buffer.bufferCurrentPos->r;
 				int32_t fromDelay2L = nextPos->l;
@@ -909,12 +930,12 @@ void ModControllableAudio::initializeSecondaryDelayBuffer(int32_t newNativeRate,
                                                           bool makeNativeRatePreciseRelativeToOtherBuffer) {
 	uint8_t result = delay.secondaryBuffer.init(newNativeRate, delay.primaryBuffer.size);
 	if (result == NO_ERROR) {
-		//Uart::print("new buffer, size: ");
-		//Uart::println(delay.secondaryBuffer.size);
+		//Debug::print("new buffer, size: ");
+		//Debug::println(delay.secondaryBuffer.size);
 
 		// 2 different options here for different scenarios. I can't very clearly remember how to describe the difference
 		if (makeNativeRatePreciseRelativeToOtherBuffer) {
-			//Uart::println("making precise");
+			//Debug::println("making precise");
 			delay.primaryBuffer.makeNativeRatePreciseRelativeToOtherBuffer(&delay.secondaryBuffer);
 		}
 		else {
@@ -961,7 +982,9 @@ inline void ModControllableAudio::doEQ(bool doBass, bool doTreble, int32_t* inpu
 void ModControllableAudio::writeAttributesToFile() {
 	storageManager.writeAttribute("lpfMode", (char*)lpfTypeToString(lpfMode));
 	storageManager.writeAttribute("modFXType", (char*)fxTypeToString(modFXType));
-	if (clippingAmount) storageManager.writeAttribute("clippingAmount", clippingAmount);
+	if (clippingAmount) {
+		storageManager.writeAttribute("clippingAmount", clippingAmount);
+	}
 }
 
 void ModControllableAudio::writeTagsToFile() {
@@ -1098,7 +1121,9 @@ bool ModControllableAudio::readParamTagFromFile(char const* tagName, ParamManage
 		storageManager.exitTag("modFXFeedback");
 	}
 
-	else return false;
+	else {
+		return false;
+	}
 
 	return true;
 }
@@ -1137,7 +1162,9 @@ doReadPatchedParam:
 				if (paramManager) {
 					if (!paramManager->containsAnyMainParamCollections()) {
 						int error = Sound::createParamManagerForLoading(paramManager);
-						if (error) return error;
+						if (error) {
+							return error;
+						}
 					}
 					ParamCollectionSummary* patchedParamsSummary = paramManager->getPatchedParamSetSummary();
 					PatchedParamSet* patchedParams = (PatchedParamSet*)patchedParamsSummary->paramCollection;
@@ -1267,7 +1294,9 @@ doReadPatchedParam:
 		storageManager.exitTag("midiKnobs");
 	}
 
-	else return RESULT_TAG_UNUSED;
+	else {
+		return RESULT_TAG_UNUSED;
+	}
 
 	return NO_ERROR;
 }
@@ -1297,7 +1326,9 @@ ModelStackWithThreeMainThings* ModControllableAudio::addNoteRowIndexAndStuff(Mod
 	if (noteRowIndex != -1) {
 		InstrumentClip* clip = (InstrumentClip*)modelStack->getTimelineCounter();
 #if ALPHA_OR_BETA_VERSION
-		if (noteRowIndex >= clip->noteRows.getNumElements()) numericDriver.freezeWithError("E406");
+		if (noteRowIndex >= clip->noteRows.getNumElements()) {
+			numericDriver.freezeWithError("E406");
+		}
 #endif
 		noteRow = clip->noteRows.getElement(noteRowIndex);
 		noteRowId = clip->getNoteRowId(noteRow, noteRowIndex);
@@ -1335,7 +1366,9 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 			messageUsed = true;
 
 			// See if this message is evidence that the knob is not "relative"
-			if (value >= 16 && value < 112) knob->relative = false;
+			if (value >= 16 && value < 112) {
+				knob->relative = false;
+			}
 
 			// Only if this exact TimelineCounter is having automation step-edited, we can set the value for just a region.
 			int32_t modPos = 0;
@@ -1363,7 +1396,9 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 
 				if (knob->relative) {
 					int offset = value;
-					if (offset >= 64) offset -= 128;
+					if (offset >= 64) {
+						offset -= 128;
+					}
 
 					int32_t previousValue =
 					    modelStackWithParam->autoParam->getValuePossiblyAtPos(modPos, modelStackWithParam);
@@ -1373,16 +1408,141 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 					newKnobPos = knobPos + offset;
 					newKnobPos = getMax(newKnobPos, lowerLimit);
 					newKnobPos = getMin(newKnobPos, 64);
-					if (newKnobPos == knobPos) continue;
+					if (newKnobPos == knobPos) {
+						continue;
+					}
 				}
 				else {
-					newKnobPos = 64;
-					if (value < 127) newKnobPos = (int)value - 64;
+					if (midiEngine.midiTakeover == MIDI_TAKEOVER_JUMP) { //Midi Takeover Mode = Jump
+						newKnobPos = 64;
+						if (value < 127) {
+							newKnobPos = (int)value - 64;
+						}
+						knob->previousPositionSaved = false;
+					}
+					else { //Midi Takeover Mode = Pickup or Value Scaling
+						/*
+
+						Step #1: Convert Midi Controller's CC Value to Deluge Knob Position Value
+
+						- Midi CC Values for non endless encoders typically go from 0 to 127
+						- Deluge Knob Position Value goes from -64 to 64
+
+						To convert Midi CC Value to Deluge Knob Position Value, subtract 64 from the Midi CC Value
+
+						So a Midi CC Value of 0 is equal to a Deluge Knob Position Value of -64 (0 less 64).
+
+						Similarly a Midi CC Value of 127 is equal to a Deluge Knob Position Value of +63 (127 less 64)
+
+						*/
+
+						int midiKnobPos = value - 64;
+
+						//Save previous knob position for first time
+						//The first time a midi knob is turned in a session, no previous midi knob position information exists, so to start, it will be equal to the current midiKnobPos
+						//This code is also executed when takeover mode is changed to Jump and back to Pickup/Scale because in Jump mode no previousPosition information gets saved
+
+						if (!knob->previousPositionSaved) {
+							knob->previousPosition = midiKnobPos;
+
+							knob->previousPositionSaved = true;
+						}
+
+						//adjust previous knob position saved
+
+						//Here we check to see if the midi knob position previously saved is greater or less than the current midi knob position +/- 1
+						//If it's by more than 1, the previous position is adjusted.
+						//This could happen for example if you changed banks and the previous position is no longer valid.
+						//By resetting the previous position we ensure that the there isn't unwanted jumpyness in the calculation of the midi knob position change amount
+						if (knob->previousPosition > (midiKnobPos + 1) || knob->previousPosition < (midiKnobPos - 1)) {
+
+							knob->previousPosition = midiKnobPos;
+						}
+
+						//Here we obtain the current Parameter Value on the Deluge
+						int32_t previousValue =
+						    modelStackWithParam->autoParam->getValuePossiblyAtPos(modPos, modelStackWithParam);
+
+						//Here we convert the current Parameter Value on the Deluge to a Knob Position Value
+						int knobPos = modelStackWithParam->paramCollection->paramValueToKnobPos(previousValue,
+						                                                                        modelStackWithParam);
+
+						//Here is where we check if the Knob/Fader on the Midi Controller is out of sync with the Deluge Knob Position
+
+						//First we check if the Midi Knob/Fader is sending a Value that is less the current Deluge Knob Position
+						//If less, check by how much its less. If the difference is greater than 1, ignore the CC value change (or scale it if value scaling is on)
+						if (midiKnobPos == (knobPos - 1)) {
+							newKnobPos = knobPos - 1;
+						}
+
+						//Next we check if the Midi Knob/Fader is sending a Value that is greater than the current Deluge Knob Position
+						//If greater, check by how much its greater. If the difference is greater than 1, ignore the CC value change (or scale it if value scaling is on)
+						else if (midiKnobPos == (knobPos + 1)) {
+							newKnobPos = knobPos + 1;
+						}
+
+						else {
+
+							//if the first two conditions fail and pickup mode is enabled, then the Deluge Knob Position (and therefore the Parameter Value with it) remains unchanged
+							if (midiEngine.midiTakeover == MIDI_TAKEOVER_PICKUP) { //Midi Pickup Mode On
+								newKnobPos = knobPos;
+							}
+							//if the first two conditions fail and value scaling mode is enabled, then the Deluge Knob Position is scaled upwards or downwards based on relative
+							//positions of Midi Controller Knob and Deluge Knob to min/max of knob range.
+							else { //Midi Value Scaling Mode On
+								//Set the max and min of the deluge midi knob position range
+								int knobMaxPos = 64;
+								int knobMinPos = -64;
+
+								//calculate amount of deluge "knob runway" is remaining from current knob position to max and min of knob position range
+								int delugeKnobMaxPosDelta = knobMaxPos - knobPos; //Positive Runway
+								int delugeKnobMinPosDelta = knobPos - knobMinPos; //Negative Runway
+
+								//calculate amount of midi "knob runway" is remaining from current knob position to max and min of knob position range
+								int midiKnobMaxPosDelta = knobMaxPos - midiKnobPos; //Positive Runway
+								int midiKnobMinPosDelta = midiKnobPos - knobMinPos; //Negative Runway
+
+								//calculate by how much the current midiKnobPos has changed from the previous midiKnobPos recorded
+								int midiKnobPosChange = midiKnobPos - knob->previousPosition;
+
+								//Set fixed point variable which will be used calculate the percentage in midi knob position
+								int midiKnobPosChangePercentage;
+
+								//if midi knob position change is greater than 0, then the midi knob position has increased (e.g. turned knob right)
+								if (midiKnobPosChange > 0) {
+									//fixed point math calculation of new deluge knob position when midi knob position has increased
+
+									midiKnobPosChangePercentage = (midiKnobPosChange << 20) / midiKnobMaxPosDelta;
+
+									newKnobPos =
+									    knobPos + ((delugeKnobMaxPosDelta * midiKnobPosChangePercentage) >> 20);
+								}
+								//if midi knob position change is less than 0, then the midi knob position has decreased (e.g. turned knob left)
+								else if (midiKnobPosChange < 0) {
+									//fixed point math calculation of new deluge knob position when midi knob position has decreased
+
+									midiKnobPosChangePercentage = (midiKnobPosChange << 20) / midiKnobMinPosDelta;
+
+									newKnobPos =
+									    knobPos + ((delugeKnobMinPosDelta * midiKnobPosChangePercentage) >> 20);
+								}
+								//if midi knob position change is 0, then the midi knob position has not changed and thus no change in deluge knob position / parameter value is required
+								else {
+									newKnobPos = knobPos;
+								}
+							}
+						}
+
+						//save the current midi knob position as the previous midi knob position so that it can be used next time the takeover code is executed
+						knob->previousPosition = midiKnobPos;
+					}
 				}
 
+				//Convert the New Knob Position to a Parameter Value
 				int32_t newValue =
 				    modelStackWithParam->paramCollection->knobPosToParamValue(newKnobPos, modelStackWithParam);
 
+				//Set the new Parameter Value for the MIDI Learned Parameter
 				modelStackWithParam->autoParam->setValuePossiblyForRegion(newValue, modelStackWithParam, modPos,
 				                                                          modLength);
 			}
@@ -1448,8 +1608,9 @@ bool ModControllableAudio::offerReceivedPitchBendToLearnedParams(MIDIDevice* fro
 void ModControllableAudio::beginStutter(ParamManagerForTimeline* paramManager) {
 	if (currentUIMode != UI_MODE_NONE && currentUIMode != UI_MODE_CLIP_PRESSED_IN_SONG_VIEW
 	    && currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW
-	    && currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION)
+	    && currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION) {
 		return;
+	}
 
 	// You'd think I should apply "false" here, to make it not add extra space to the buffer, but somehow this seems to sound as good if not better (in terms of ticking / crackling)...
 	bool error = stutterer.buffer.init(getStutterRate(paramManager), 0, true);
@@ -1512,7 +1673,9 @@ void ModControllableAudio::switchDelayAnalog() {
 
 void ModControllableAudio::switchLPFMode() {
 	lpfMode++;
-	if (lpfMode >= NUM_LPF_MODES) lpfMode = 0;
+	if (lpfMode >= NUM_LPF_MODES) {
+		lpfMode = 0;
+	}
 
 	char const* displayText;
 	switch (lpfMode) {
@@ -1601,7 +1764,9 @@ bool ModControllableAudio::learnKnob(MIDIDevice* fromDevice, ParamDescriptor par
 
 		// Or if we're here, it doesn't already exist, so find an unused MIDIKnob
 		knob = midiKnobArray.insertKnobAtEnd();
-		if (!knob) return false;
+		if (!knob) {
+			return false;
+		}
 
 midiKnobFound:
 		knob->midiInput.noteOrCC = whichKnob;
@@ -1611,7 +1776,9 @@ midiKnobFound:
 		knob->relative = (whichKnob != 128); // Guess that it's relative, unless this is a pitch-bend "knob"
 	}
 
-	if (overwroteExistingKnob) ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(song);
+	if (overwroteExistingKnob) {
+		ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(song);
+	}
 
 	return true;
 }
@@ -1628,10 +1795,14 @@ bool ModControllableAudio::unlearnKnobs(ParamDescriptor paramDescriptor, Song* s
 			anythingFound = true;
 			midiKnobArray.deleteAtIndex(k);
 		}
-		else k++;
+		else {
+			k++;
+		}
 	}
 
-	if (anythingFound) ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(song);
+	if (anythingFound) {
+		ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(song);
+	}
 
 	return anythingFound;
 }
@@ -1678,7 +1849,9 @@ char const* ModControllableAudio::paramToString(uint8_t param) {
 
 int ModControllableAudio::stringToParam(char const* string) {
 	for (int p = PARAM_UNPATCHED_SECTION; p < PARAM_UNPATCHED_SECTION + NUM_SHARED_UNPATCHED_PARAMS; p++) {
-		if (!strcmp(string, ModControllableAudio::paramToString(p))) return p;
+		if (!strcmp(string, ModControllableAudio::paramToString(p))) {
+			return p;
+		}
 	}
 	return PARAM_NONE;
 }

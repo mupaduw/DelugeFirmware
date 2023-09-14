@@ -18,9 +18,9 @@
 #include "processing/engines/audio_engine.h"
 #include "hid/led/pad_leds.h"
 #include "gui/waveform/waveform_render_data.h"
-#include <string.h>
+#include <cstring>
 #include "gui/ui_timer_manager.h"
-#include "gui/menu_item/menu_item_colour.h"
+#include "gui/menu_item/colour.h"
 #include "model/song/song.h"
 #include "gui/views/session_view.h"
 #include "model/clip/audio_clip.h"
@@ -34,6 +34,7 @@
 #include "model/sample/sample.h"
 #include "gui/views/view.h"
 #include "model/clip/instrument_clip.h"
+#include "hid/display/oled.h"
 
 extern "C" {
 #include "RZA1/uart/sio_char.h"
@@ -49,11 +50,20 @@ bool zoomingIn;
 int8_t zoomMagnitude;
 int zoomPinSquare[displayHeight];
 bool transitionTakingPlaceOnRow[displayHeight];
+int8_t explodeAnimationDirection;
 
+namespace horizontal {
 uint8_t areaToScroll;
 uint8_t squaresScrolled;
-int8_t animationDirection;
+int8_t scrollDirection;
 bool scrollingIntoNothing; // Means we're scrolling into a black screen
+} // namespace horizontal
+
+namespace vertical {
+uint8_t squaresScrolled;
+int8_t scrollDirection;
+bool scrollingToNothing;
+} // namespace vertical
 
 int16_t animatedRowGoingTo[MAX_NUM_ANIMATED_ROWS];
 int16_t animatedRowGoingFrom[MAX_NUM_ANIMATED_ROWS];
@@ -113,11 +123,9 @@ void clearTickSquares(bool shouldSend) {
 	if (flashCursor == FLASH_CURSOR_SLOW && !shouldNotRenderDuringTimerRoutine()) {
 		for (int y = 0; y < displayHeight; y++) {
 
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-			if (slowFlashSquares[y] != 255) colsToSend |= (1 << slowFlashSquares[y]);
-#else
-			if (slowFlashSquares[y] != 255) colsToSend |= (1 << (slowFlashSquares[y] >> 1));
-#endif
+			if (slowFlashSquares[y] != 255) {
+				colsToSend |= (1 << (slowFlashSquares[y] >> 1));
+			}
 		}
 	}
 
@@ -127,13 +135,11 @@ void clearTickSquares(bool shouldSend) {
 		if (colsToSend) {
 			for (int x = 0; x < 8; x++) {
 				if (colsToSend & (1 << x)) {
-					if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= NUM_BYTES_IN_COL_UPDATE_MESSAGE) break;
+					if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= NUM_BYTES_IN_COL_UPDATE_MESSAGE) {
+						break;
+					}
 
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-					sortLedsForCol(x);
-#else
 					sortLedsForCol(x << 1);
-#endif
 				}
 			}
 			uartFlushIfNotSending(UART_ITEM_PIC_PADS);
@@ -150,19 +156,15 @@ void setTickSquares(const uint8_t* squares, const uint8_t* colours) {
 			for (int y = 0; y < displayHeight; y++) {
 				if (squares[y] != slowFlashSquares[y] || colours[y] != slowFlashColours[y]) {
 
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
 					// Remember to update the new column
-					if (squares[y] != 255) colsToSend |= (1 << squares[y]);
+					if (squares[y] != 255) {
+						colsToSend |= (1 << (squares[y] >> 1));
+					}
 
 					// And the old column
-					if (slowFlashSquares[y] != 255) colsToSend |= (1 << slowFlashSquares[y]);
-#else
-					// Remember to update the new column
-					if (squares[y] != 255) colsToSend |= (1 << (squares[y] >> 1));
-
-					// And the old column
-					if (slowFlashSquares[y] != 255) colsToSend |= (1 << (slowFlashSquares[y] >> 1));
-#endif
+					if (slowFlashSquares[y] != 255) {
+						colsToSend |= (1 << (slowFlashSquares[y] >> 1));
+					}
 				}
 			}
 		}
@@ -171,27 +173,21 @@ void setTickSquares(const uint8_t* squares, const uint8_t* colours) {
 		for (int y = 0; y < displayHeight; y++) {
 			if (squares[y] != slowFlashSquares[y] && squares[y] != 255) {
 
-				int colourMessage;
+				int colour = 0;
 				if (colours[y] == 1) { // "Muted" colour
-					colourMessage = 10;
 					uint8_t mutedColour[3];
-					mutedColourMenu.getRGB(mutedColour);
+					menu_item::mutedColourMenu.getRGB(mutedColour);
 					for (int c = 0; c < 3; c++) {
-						if (mutedColour[c] >= 64) colourMessage += (1 << c);
+						if (mutedColour[c] >= 64) {
+							colour += (1 << c);
+						}
 					}
-sendColourMessage:
-					bufferPICPadsUart(colourMessage);
 				}
 				else if (colours[y] == 2) { // Red
-					colourMessage = 10 + 0b00000001;
-					goto sendColourMessage;
+					colour = 0b00000001;
 				}
 
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-				bufferPICPadsUart(78 + squares[y] + y * displayWidth);
-#else
-				bufferPICPadsUart(24 + y + (squares[y] * displayHeight));
-#endif
+				PadLEDs::flashMainPad(squares[y], y, colour);
 			}
 		}
 	}
@@ -204,12 +200,10 @@ sendColourMessage:
 		if (colsToSend) {
 			for (int x = 0; x < 8; x++) {
 				if (colsToSend & (1 << x)) {
-					if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= NUM_BYTES_IN_COL_UPDATE_MESSAGE) break;
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-					sortLedsForCol(x);
-#else
+					if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= NUM_BYTES_IN_COL_UPDATE_MESSAGE) {
+						break;
+					}
 					sortLedsForCol(x << 1);
-#endif
 				}
 			}
 			uartFlushIfNotSending(UART_ITEM_PIC_PADS);
@@ -239,15 +233,10 @@ void clearSideBar() {
 void sortLedsForCol(int x) {
 	AudioEngine::logAction("MatrixDriver::sortLedsForCol");
 
-#if DELUGE_MODEL >= DELUGE_MODEL_144_PAD
 	x &= 0b11111110;
-	bufferPICPadsUart((x >> 1) + 1);
+	bufferPICUart((x >> 1) + 1);
 	sendRGBForOneCol(x);
 	sendRGBForOneCol(x + 1);
-#else
-	bufferPICPadsUart(x);
-	sendRGBForOneCol(x);
-#endif
 }
 
 inline void sendRGBForOneCol(int x) {
@@ -268,7 +257,7 @@ void sendRGBForOnePadFast(int x, int y, const uint8_t* colourSource) {
 
 	if (flashCursor == FLASH_CURSOR_SLOW && slowFlashSquares[y] == x && currentUIMode != UI_MODE_HORIZONTAL_SCROLL) {
 		if (slowFlashColours[y] == 1) { // If it's to be the "muted" colour, get that
-			mutedColourMenu.getRGB(temp);
+			menu_item::mutedColourMenu.getRGB(temp);
 			colourSource = temp;
 		}
 		else { // Otherwise, pull from a referenced table line
@@ -280,15 +269,15 @@ void sendRGBForOnePadFast(int x, int y, const uint8_t* colourSource) {
 	    && ((greyoutRows & (1 << y)) || (greyoutCols & (1 << (displayWidth + sideBarWidth - 1 - x))))) {
 		uint8_t greyedOutColour[3];
 		greyColourOut(colourSource, greyedOutColour, greyProportion);
-		bufferPICPadsUart(greyedOutColour[0]);
-		bufferPICPadsUart(greyedOutColour[1]);
-		bufferPICPadsUart(greyedOutColour[2]);
+		bufferPICUart(greyedOutColour[0]);
+		bufferPICUart(greyedOutColour[1]);
+		bufferPICUart(greyedOutColour[2]);
 	}
 
 	else {
-		bufferPICPadsUart(colourSource[0]);
-		bufferPICPadsUart(colourSource[1]);
-		bufferPICPadsUart(colourSource[2]);
+		bufferPICUart(colourSource[0]);
+		bufferPICUart(colourSource[1]);
+		bufferPICUart(colourSource[2]);
 	}
 }
 
@@ -349,13 +338,19 @@ void renderInstrumentClipCollapseAnimation(int xStart, int xEndOverall, int prog
 	else {
 		greyTop = animatedRowGoingTo[0] + 1 + (((displayHeight - animatedRowGoingTo[0]) * progress + 32768) >> 16);
 		greyBottom = animatedRowGoingTo[0] - (((animatedRowGoingTo[0]) * progress + 32768) >> 16);
-		if (greyTop > displayHeight) greyTop = displayHeight;
-		if (greyBottom < 0) greyBottom = 0;
+		if (greyTop > displayHeight) {
+			greyTop = displayHeight;
+		}
+		if (greyBottom < 0) {
+			greyBottom = 0;
+		}
 	}
 
 	if (xEnd < displayWidth) {
 
-		if (xEnd < 0) xEnd = 0;
+		if (xEnd < 0) {
+			xEnd = 0;
+		}
 
 		for (int yDisplay = greyBottom; yDisplay < greyTop; yDisplay++) {
 			memset(PadLEDs::image[yDisplay][xEnd], 7, (displayWidth - xEnd) * 3);
@@ -365,7 +360,9 @@ void renderInstrumentClipCollapseAnimation(int xStart, int xEndOverall, int prog
 	for (int col = xStart; col < xEndOverall; col++) {
 
 		if (col < displayWidth) {
-			if (col >= xEnd) continue; // It's beyond the end of the Clip, and it's already been filled in grey
+			if (col >= xEnd) {
+				continue; // It's beyond the end of the Clip, and it's already been filled in grey
+			}
 
 			// Or if it's greyed out cos of triplets...
 			if (!instrumentClipView.isSquareDefined(col, currentSong->xScroll[NAVIGATION_CLIP])) {
@@ -379,7 +376,9 @@ void renderInstrumentClipCollapseAnimation(int xStart, int xEndOverall, int prog
 		}
 
 		for (int i = 0; i < numAnimatedRows; i++) {
-			if (!occupancyMaskStore[i][col]) continue; // Nothing to do if there was nothing in this square
+			if (!occupancyMaskStore[i][col]) {
+				continue; // Nothing to do if there was nothing in this square
+			}
 
 			uint8_t* squareColours = imageStore[i][col];
 
@@ -433,7 +432,9 @@ void setupAudioClipCollapseOrExplodeAnimation(AudioClip* clip) {
 
 	Sample* sample = (Sample*)clip->sampleHolder.audioFile;
 
-	if (ALPHA_OR_BETA_VERSION && !sample) numericDriver.freezeWithError("E311");
+	if (ALPHA_OR_BETA_VERSION && !sample) {
+		numericDriver.freezeWithError("E311");
+	}
 
 	sampleMaxPeakFromZero = sample->getMaxPeakFromZero();
 	sampleValueCentrePoint = sample->getFoundValueCentrePoint();
@@ -459,15 +460,21 @@ void renderAudioClipCollapseAnimation(int progress) {
 
 	if (xEnd < displayWidth) {
 
-		if (xEnd < 0) xEnd = 0;
+		if (xEnd < 0) {
+			xEnd = 0;
+		}
 
 		int greyTop = waveformRenderer.collapseAnimationToWhichRow + 1
 		              + (((displayHeight - waveformRenderer.collapseAnimationToWhichRow) * progress + 32768) >> 16);
 		int greyBottom = waveformRenderer.collapseAnimationToWhichRow
 		                 - (((waveformRenderer.collapseAnimationToWhichRow) * progress + 32768) >> 16);
 
-		if (greyTop > displayHeight) greyTop = displayHeight;
-		if (greyBottom < 0) greyBottom = 0;
+		if (greyTop > displayHeight) {
+			greyTop = displayHeight;
+		}
+		if (greyBottom < 0) {
+			greyBottom = 0;
+		}
 
 		for (int yDisplay = greyBottom; yDisplay < greyTop; yDisplay++) {
 			memset(PadLEDs::image[yDisplay][xEnd], 7, (displayWidth - xEnd) * 3);
@@ -509,9 +516,13 @@ void renderAudioClipExplodeAnimation(int explodedness, bool shouldSendOut) {
 		xSourceRightEdge = xSourceBig >> 16;
 
 		// For first iteration, we just wanted that value, to use next time - and we should get out now
-		if (!xDestSquareRightEdge) continue;
+		if (!xDestSquareRightEdge) {
+			continue;
+		}
 
-		if (xSourceRightEdge <= 0) continue; // <=0 probably looks a little bit better than <0
+		if (xSourceRightEdge <= 0) {
+			continue; // <=0 probably looks a little bit better than <0
+		}
 
 		// Ok, we need the max values between xSourceLeftEdge and xSourceRightEdge
 		int xSourceLeftEdgeLimited = getMax(xSourceLeftEdge, 0);
@@ -522,8 +533,9 @@ void renderAudioClipExplodeAnimation(int explodedness, bool shouldSendOut) {
 		    xSourceLeftEdgeLimited, xSourceRightEdgeLimited, xDest, sampleMaxPeakFromZero, explodedness, PadLEDs::image,
 		    &waveformRenderData, audioClipColour, sampleReversed, sampleValueCentrePoint, sampleValueSpan);
 
-		if (xSourceRightEdge >= displayWidth)
+		if (xSourceRightEdge >= displayWidth) {
 			break; // If we got to the right edge of everything we want to draw onscreen
+		}
 	}
 
 	if (shouldSendOut) {
@@ -589,13 +601,21 @@ void renderExplodeAnimation(int explodedness, bool shouldSendOut) {
 
 				for (int xOffset = 0; xOffset < 2; xOffset++) {
 					int xNow = xDestArray[xSource] + xOffset;
-					if (xNow < 0) continue;
-					if (xNow >= displayWidth) break;
+					if (xNow < 0) {
+						continue;
+					}
+					if (xNow >= displayWidth) {
+						break;
+					}
 
 					for (int yOffset = 0; yOffset < 2; yOffset++) {
 						int yNow = yDest + yOffset;
-						if (yNow < 0) continue;
-						if (yNow >= displayHeight) break;
+						if (yNow < 0) {
+							continue;
+						}
+						if (yNow >= displayHeight) {
+							break;
+						}
 
 						uint32_t intensityNow = (yIntensity[yOffset] * xIntensityArray[xSource][xOffset]) >> 16;
 						drawSquare(imageStore[ySource + 1][xSource], intensityNow, PadLEDs::image[yNow][xNow],
@@ -619,7 +639,9 @@ void reassessGreyout(bool doInstantly) {
 	getUIGreyoutRowsAndCols(&newCols, &newRows);
 
 	// If same as before, get out
-	if (newCols == greyoutCols && newRows == greyoutRows) return;
+	if (newCols == greyoutCols && newRows == greyoutRows) {
+		return;
+	}
 
 	bool anythingBefore = (greyoutCols || greyoutRows);
 	bool anythingNow = (newCols || newRows);
@@ -669,6 +691,65 @@ void setGreyoutAmount(float newAmount) {
 	greyProportion = newAmount * 6500000;
 }
 
+int refreshTime;
+int dimmerInterval = 0;
+
+void setRefreshTime(int newTime) {
+	refreshTime = newTime;
+	bufferPICUart(PIC_MESSAGE_REFRESH_TIME); // Set refresh rate inverse
+	bufferPICUart(refreshTime);
+}
+
+void changeRefreshTime(int offset) {
+	int newTime = refreshTime + offset;
+	if (newTime > 255 || newTime < 1) {
+		return;
+	}
+	setRefreshTime(newTime);
+	char buffer[12];
+	intToString(refreshTime, buffer);
+	numericDriver.displayPopup(buffer);
+}
+
+void changeDimmerInterval(int offset) {
+	int newInterval = dimmerInterval - offset;
+	if (newInterval > 25 || newInterval < 0) {}
+	else {
+		setDimmerInterval(newInterval);
+	}
+
+#if HAVE_OLED
+	char text[20];
+	strcpy(text, "Brightness: ");
+	char* pos = strchr(text, 0);
+	intToString((25 - dimmerInterval) << 2, pos);
+	pos = strchr(text, 0);
+	*(pos++) = '%';
+	*pos = 0;
+	OLED::popupText(text);
+#endif
+}
+
+void setDimmerInterval(int newInterval) {
+	//Uart::print("dimmerInterval: ");
+	//Uart::println(newInterval);
+	dimmerInterval = newInterval;
+
+	int newRefreshTime = 23 - newInterval;
+	while (newRefreshTime < 6) {
+		newRefreshTime++;
+		newInterval *= 1.2;
+	}
+
+	//Uart::print("newInterval: ");
+	//Uart::println(newInterval);
+
+	setRefreshTime(newRefreshTime);
+
+	bufferPICUart(243); // Set dimmer interval
+	bufferPICUart(newInterval);
+}
+
 void timerRoutine() {
 	// If output buffer is too full, come back in a little while instead
 	if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= NUM_BYTES_IN_MAIN_PAD_REDRAW + NUM_BYTES_IN_SIDEBAR_REDRAW) {
@@ -683,7 +764,7 @@ void timerRoutine() {
 	}
 
 	else if (isUIModeActive(UI_MODE_HORIZONTAL_SCROLL)) {
-		renderScroll();
+		horizontal::renderScroll();
 	}
 
 	else if (isUIModeActive(UI_MODE_AUDIO_CLIP_EXPANDING) || isUIModeActive(UI_MODE_AUDIO_CLIP_COLLAPSING)) {
@@ -703,7 +784,7 @@ void timerRoutine() {
 		if (progress >= 65536) { // If finished transitioning...
 
 			// If going to keyboard screen, no sidebar or anything to fade in
-			if (animationDirection == 1 && currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT
+			if (explodeAnimationDirection == 1 && currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT
 			    && ((InstrumentClip*)currentSong->currentClip)->onKeyboardScreen) {
 				currentUIMode = UI_MODE_NONE;
 				changeRootUI(&keyboardScreen);
@@ -711,7 +792,7 @@ void timerRoutine() {
 
 			// Otherwise, there's stuff we want to fade in / to
 			else {
-				int explodedness = (animationDirection == 1) ? 65536 : 0;
+				int explodedness = (explodeAnimationDirection == 1) ? 65536 : 0;
 				if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) {
 					renderExplodeAnimation(explodedness, false);
 				}
@@ -721,7 +802,7 @@ void timerRoutine() {
 				memcpy(PadLEDs::imageStore, PadLEDs::image, (displayWidth + sideBarWidth) * displayHeight * 3);
 
 				currentUIMode = UI_MODE_ANIMATION_FADE;
-				if (animationDirection == 1) {
+				if (explodeAnimationDirection == 1) {
 					if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) {
 						changeRootUI(&instrumentClipView); // We want to fade the sidebar in
 					}
@@ -733,8 +814,9 @@ void timerRoutine() {
 				else {
 					changeRootUI(&arrangerView);
 
-					if (arrangerView.doingAutoScrollNow)
+					if (arrangerView.doingAutoScrollNow) {
 						goto stopFade; // If we suddenly just started doing an auto-scroll, there's no time to fade
+					}
 				}
 
 				recordTransitionBegin(130);
@@ -742,8 +824,8 @@ void timerRoutine() {
 			}
 		}
 		else {
-			int explodedness = (animationDirection == 1) ? 0 : 65536;
-			explodedness += progress * animationDirection;
+			int explodedness = (explodeAnimationDirection == 1) ? 0 : 65536;
+			explodedness += progress * explodeAnimationDirection;
 
 			if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) {
 				renderExplodeAnimation(explodedness);
@@ -796,8 +878,12 @@ stopFade:
 		}
 	}
 
-	if (needToSendOutMainPadColours) sendOutMainPadColours();
-	if (needToSendOutSidebarColours) sendOutSidebarColours();
+	if (needToSendOutMainPadColours) {
+		sendOutMainPadColours();
+	}
+	if (needToSendOutSidebarColours) {
+		sendOutSidebarColours();
+	}
 }
 
 void sendOutMainPadColours() {
@@ -808,11 +894,9 @@ void sendOutMainPadColours() {
 	}
 
 	for (int col = 0; col < displayWidth; col++) {
-#if DELUGE_MODEL >= DELUGE_MODEL_144_PAD
-		if (col & 1) sortLedsForCol(col - 1);
-#else
-		sortLedsForCol(col);
-#endif
+		if (col & 1) {
+			sortLedsForCol(col - 1);
+		}
 	}
 
 	uartFlushIfNotSending(UART_ITEM_PIC_PADS);
@@ -834,13 +918,7 @@ void sendOutSidebarColours() {
 		return;
 	}
 
-#if DELUGE_MODEL >= DELUGE_MODEL_144_PAD
 	sortLedsForCol(displayWidth);
-#else
-	for (int col = 0; col < sideBarWidth; col++) {
-		sortLedsForCol(col + displayWidth);
-	}
-#endif
 
 	uartFlushIfNotSending(UART_ITEM_PIC_PADS);
 
@@ -904,7 +982,9 @@ void renderClipExpandOrCollapse() {
 				changeRootUI(&instrumentClipView);
 				// If we need to zoom in horizontally because the Clip's too short...
 				bool anyZoomingDone = instrumentClipView.zoomToMax(true);
-				if (anyZoomingDone) uiNeedsRendering(&instrumentClipView, 0, 0xFFFFFFFF);
+				if (anyZoomingDone) {
+					uiNeedsRendering(&instrumentClipView, 0, 0xFFFFFFFF);
+				}
 			}
 			return;
 		}
@@ -950,7 +1030,9 @@ void renderZoom() {
 		return;
 	}
 
-	if (!zoomingIn) transitionProgress = 65536 - transitionProgress;
+	if (!zoomingIn) {
+		transitionProgress = 65536 - transitionProgress;
+	}
 
 	uint32_t sineValue = (getSine((transitionProgress + 98304) & 131071, 17) >> 16) + 32768;
 
@@ -1029,7 +1111,9 @@ void renderZoomWithProgress(int inImageTimesBiggerThanNative, uint32_t inImageFa
 					// Work out how much of this square will be covered by the "in" (thinner) image (often it'll be all of it, or none)
 					int32_t inImageOverlap = getMin(outputSquareRightEdge, inImageRightEdgeOnscreen)
 					                         - getMax(outputSquareLeftEdge, inImageLeftEdgeOnscreen);
-					if (inImageOverlap < 0) inImageOverlap = 0;
+					if (inImageOverlap < 0) {
+						inImageOverlap = 0;
+					}
 
 					// Convert that into knowing what proportion of colour from each image we want to grab
 					inImageFadePerCol[xDisplay] = ((uint32_t)inImageOverlap * inImageFadeAmount) >> 16;
@@ -1093,9 +1177,7 @@ void renderZoomWithProgress(int inImageTimesBiggerThanNative, uint32_t inImageFa
 		innerImage += innerImageTotalWidth * 3;
 		outerImage += outerImageTotalWidth * 3;
 	}
-	if (DELUGE_MODEL != DELUGE_MODEL_40_PAD) {
-		AudioEngine::routineWithClusterLoading(); // -----------------------------------
-	}
+	AudioEngine::routineWithClusterLoading(); // -----------------------------------
 }
 
 void renderZoomedSquare(int32_t outputSquareStartOnSourceImage, int32_t outputSquareEndOnSourceImage,
@@ -1105,12 +1187,18 @@ void renderZoomedSquare(int32_t outputSquareStartOnSourceImage, int32_t outputSq
 	int32_t outImageStartSquareLeftEdge = (uint32_t)(outputSquareStartOnSourceImage) & ~(uint32_t)65535;
 	for (int32_t sourceSquareLeftEdge = getMax((int32_t)0, outImageStartSquareLeftEdge); true;
 	     sourceSquareLeftEdge += 65536) {
-		if (sourceSquareLeftEdge >= outputSquareEndOnSourceImage) break;
+		if (sourceSquareLeftEdge >= outputSquareEndOnSourceImage) {
+			break;
+		}
 		int xSource = sourceSquareLeftEdge >> 16;
-		if (xSource >= inputImageWidth) break;
+		if (xSource >= inputImageWidth) {
+			break;
+		}
 
 		// If nothing (i.e. black) at this input pixel, continue
-		if (!((*(uint32_t*)&inputImageRow[xSource * 3]) & (uint32_t)16777215)) continue;
+		if (!((*(uint32_t*)&inputImageRow[xSource * 3]) & (uint32_t)16777215)) {
+			continue;
+		}
 
 		*drawingAnything = true;
 
@@ -1126,39 +1214,34 @@ void renderZoomedSquare(int32_t outputSquareStartOnSourceImage, int32_t outputSq
 	}
 }
 
-void renderScroll() {
+void horizontal::renderScroll() {
 
 	squaresScrolled++;
-	int copyCol = (animationDirection > 0) ? squaresScrolled - 1 : areaToScroll - squaresScrolled;
-	int startSquare = (animationDirection > 0) ? 0 : areaToScroll - 1;
-	int endSquare = (animationDirection > 0) ? areaToScroll - 1 : 0;
+	int copyCol = (scrollDirection > 0) ? squaresScrolled - 1 : areaToScroll - squaresScrolled;
+	int startSquare = (scrollDirection > 0) ? 0 : areaToScroll - 1;
+	int endSquare = (scrollDirection > 0) ? areaToScroll - 1 : 0;
 	for (int row = 0; row < displayHeight; row++) {
 		if (transitionTakingPlaceOnRow[row]) {
 			for (int colour = 0; colour < 3; colour++) {
-				for (int x = startSquare; x != endSquare; x += animationDirection) {
-					PadLEDs::image[row][x][colour] = PadLEDs::image[row][x + animationDirection][colour];
+				for (int x = startSquare; x != endSquare; x += scrollDirection) {
+					PadLEDs::image[row][x][colour] = PadLEDs::image[row][x + scrollDirection][colour];
 				}
 				// And, bring in a col from the temp image
-				if (scrollingIntoNothing) PadLEDs::image[row][endSquare][colour] = 0;
-				else PadLEDs::image[row][endSquare][colour] = imageStore[row][copyCol][colour];
+				if (scrollingIntoNothing) {
+					PadLEDs::image[row][endSquare][colour] = 0;
+				}
+				else {
+					PadLEDs::image[row][endSquare][colour] = imageStore[row][copyCol][colour];
+				}
 			}
 
-#if DELUGE_MODEL != DELUGE_MODEL_40_PAD
-			bufferPICPadsUart(228 + row);
+			bufferPICUart(228 + row);
 			sendRGBForOnePadFast(endSquare, row, image[row][endSquare]);
-#endif
 		}
 	}
 
-#if DELUGE_MODEL == DELUGE_MODEL_40_PAD
-	sendOutMainPadColours();
-	if (areaToScroll > displayWidth) {
-		sendOutSidebarColours();
-	}
-#else
-	bufferPICPadsUart(240);
+	bufferPICUart(240);
 	uartFlushIfNotSending(UART_ITEM_PIC_PADS);
-#endif
 	if (squaresScrolled >= areaToScroll) {
 		getCurrentUI()->scrollFinished();
 	}
@@ -1167,20 +1250,56 @@ void renderScroll() {
 	}
 }
 
-void setupScroll(int8_t thisScrollDirection, uint8_t thisAreaToScroll, bool scrollIntoNothing, int numSquaresToScroll) {
-	animationDirection = thisScrollDirection;
+void horizontal::setupScroll(int8_t thisScrollDirection, uint8_t thisAreaToScroll, bool scrollIntoNothing,
+                             int numSquaresToScroll) {
+	scrollDirection = thisScrollDirection;
 	areaToScroll = thisAreaToScroll;
 	squaresScrolled = thisAreaToScroll - numSquaresToScroll;
 	scrollingIntoNothing = scrollIntoNothing;
 
-#if DELUGE_MODEL != DELUGE_MODEL_40_PAD
 	uint8_t flags = 0;
-	if (thisScrollDirection >= 0) flags |= 1;
-	if (thisAreaToScroll == displayWidth + sideBarWidth) flags |= 2;
-	bufferPICPadsUart(236 + flags);
-#endif
+	if (thisScrollDirection >= 0) {
+		flags |= 1;
+	}
+	if (thisAreaToScroll == displayWidth + sideBarWidth) {
+		flags |= 2;
+	}
+	bufferPICUart(236 + flags);
 
 	renderScroll();
+}
+
+void vertical::renderScroll() {
+	squaresScrolled++;
+	int copyRow = (scrollDirection > 0) ? squaresScrolled - 1 : displayHeight - squaresScrolled;
+	int startSquare = (scrollDirection > 0) ? 0 : 1;
+	int endSquare = (scrollDirection > 0) ? displayHeight - 1 : 0;
+
+	//matrixDriver.greyoutMinYDisplay = (scrollDirection > 0) ? displayHeight - squaresScrolled : squaresScrolled;
+
+	// Move the scrolling region
+	memmove(image[startSquare], image[1 - startSquare], (displayWidth + sideBarWidth) * (displayHeight - 1) * 3);
+
+	// And, bring in a row from the temp image (or from nowhere)
+	if (scrollingToNothing) {
+		memset(image[endSquare], 0, (displayWidth + sideBarWidth) * 3);
+	}
+	else {
+		memcpy(image[endSquare], imageStore[copyRow], (displayWidth + sideBarWidth) * 3);
+	}
+
+	bufferPICUart((scrollDirection > 0) ? 241 : 242);
+
+	for (int x = 0; x < displayWidth + sideBarWidth; x++) {
+		sendRGBForOnePadFast(x, endSquare, image[endSquare][x]);
+	}
+	uartFlushIfNotSending(UART_ITEM_PIC_PADS);
+}
+
+void vertical::setupScroll(int8_t thisScrollDirection, bool scrollIntoNothing) {
+	scrollDirection = thisScrollDirection;
+	scrollingToNothing = scrollIntoNothing;
+	squaresScrolled = 0;
 }
 
 void renderFade(int progress) {

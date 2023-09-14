@@ -19,7 +19,7 @@
 #include "processing/sound/sound.h"
 #include "modulation/envelope.h"
 #include "model/voice/voice.h"
-#include "io/uart/uart.h"
+#include "io/debug/print.h"
 
 Envelope::Envelope() {
 }
@@ -63,7 +63,9 @@ considerEnvelopeStage:
 
 	case ENVELOPE_STAGE_SUSTAIN:
 		lastValue = sustain;
-		if (ignoredNoteOff) unconditionalRelease();
+		if (ignoredNoteOff) {
+			unconditionalRelease();
+		}
 		break;
 
 	case ENVELOPE_STAGE_RELEASE:
@@ -147,7 +149,9 @@ void Envelope::unconditionalRelease(uint8_t typeOfRelease, uint32_t newFastRelea
 	pos = 0;
 	lastValuePreCurrentStage = lastValue;
 
-	if (typeOfRelease == ENVELOPE_STAGE_FAST_RELEASE) fastReleaseIncrement = newFastReleaseIncrement;
+	if (typeOfRelease == ENVELOPE_STAGE_FAST_RELEASE) {
+		fastReleaseIncrement = newFastReleaseIncrement;
+	}
 }
 
 void Envelope::resumeAttack(int32_t oldLastValue) {
