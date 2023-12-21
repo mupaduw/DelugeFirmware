@@ -16,9 +16,8 @@
  */
 
 #pragma once
-#include "definitions.h"
-
 #ifdef __cplusplus
+#include "definitions_cxx.hpp"
 #include "util/container/vector/named_thing_vector.h"
 class MIDIDevice;
 class MIDIDeviceUSBUpstream;
@@ -26,6 +25,7 @@ class MIDIDeviceDINPorts;
 class MIDIDeviceUSB;
 
 #else
+#include "definitions.h"
 struct MIDIDeviceUSB;
 #endif
 
@@ -64,6 +64,7 @@ public:
 	// move data from ring buffer to dataSendingNow, assuming it is free
 	bool consumeSendData();
 	bool hasBufferedSendData();
+	int sendBufferSpace();
 #else
 //warning - accessed as a C struct from usb driver
 struct ConnectedUSBMIDIDevice {
@@ -96,8 +97,8 @@ namespace MIDIDeviceManager {
 
 void slowRoutine();
 MIDIDevice* readDeviceReferenceFromFile();
-void readDeviceReferenceFromFlash(int whichCommand, uint8_t const* memory);
-void writeDeviceReferenceToFlash(int whichCommand, uint8_t* memory);
+void readDeviceReferenceFromFlash(GlobalMIDICommand whichCommand, uint8_t const* memory);
+void writeDeviceReferenceToFlash(GlobalMIDICommand whichCommand, uint8_t* memory);
 void recountSmallestMPEZones();
 void writeDevicesToFile();
 void readAHostedDeviceFromFile();

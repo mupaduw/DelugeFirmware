@@ -15,26 +15,27 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "processing/engines/audio_engine.h"
+#include "gui/ui/save/save_instrument_preset_ui.h"
+#include "definitions_cxx.hpp"
+#include "gui/context_menu/overwrite_file.h"
+#include "gui/l10n/l10n.h"
+#include "gui/ui/keyboard/keyboard_screen.h"
+#include "gui/views/view.h"
+#include "hid/buttons.h"
+#include "hid/display/display.h"
+#include "hid/display/oled.h"
+#include "hid/led/indicator_leds.h"
+#include "hid/matrix/matrix_driver.h"
 #include "model/clip/instrument_clip.h"
 #include "model/clip/instrument_clip_minder.h"
-#include "processing/sound/sound_instrument.h"
-#include "gui/ui/save/save_instrument_preset_ui.h"
-#include "storage/storage_manager.h"
-#include "definitions.h"
-#include "util/functions.h"
-#include "hid/matrix/matrix_driver.h"
-#include "model/song/song.h"
-#include "util/lookuptables/lookuptables.h"
-#include "hid/display/numeric_driver.h"
 #include "model/drum/kit.h"
-#include "gui/ui/keyboard_screen.h"
+#include "model/song/song.h"
+#include "processing/engines/audio_engine.h"
+#include "processing/sound/sound_instrument.h"
+#include "storage/storage_manager.h"
+#include "util/functions.h"
+#include "util/lookuptables/lookuptables.h"
 #include <string.h>
-#include "gui/views/view.h"
-#include "gui/context_menu/overwrite_file.h"
-#include "hid/led/indicator_leds.h"
-#include "hid/buttons.h"
-#include "hid/display/oled.h"
 
 using namespace deluge;
 
@@ -69,21 +70,22 @@ tryDefaultDir:
 		currentDir.set(defaultDir);
 	}
 
-#if HAVE_OLED
-	fileIcon = (instrumentTypeToLoad == INSTRUMENT_TYPE_SYNTH) ? OLED::synthIcon : OLED::kitIcon;
-	title = (instrumentTypeToLoad == INSTRUMENT_TYPE_SYNTH) ? "Save synth" : "Save kit";
-#endif
+	if (display->haveOLED()) {
+		fileIcon = (instrumentTypeToLoad == InstrumentType::SYNTH) ? deluge::hid::display::OLED::synthIcon
+		                                                           : deluge::hid::display::OLED::kitIcon;
+		title = (instrumentTypeToLoad == InstrumentType::SYNTH) ? "Save synth" : "Save kit";
+	}
 
-	filePrefix = (instrumentTypeToLoad == INSTRUMENT_TYPE_SYNTH) ? "SYNT" : "KIT";
+	filePrefix = (instrumentTypeToLoad == InstrumentType::SYNTH) ? "SYNT" : "KIT";
 
-	int error = arrivedInNewFolder(0, enteredText.get(), defaultDir);
+	int32_t error = arrivedInNewFolder(0, enteredText.get(), defaultDir);
 	if (error) {
 gotError:
-		numericDriver.displayError(error);
+		display->displayError(error);
 		goto doReturnFalse;
 	}
 
-	if (instrumentTypeToLoad == INSTRUMENT_TYPE_SYNTH) {
+	if (instrumentTypeToLoad == InstrumentType::SYNTH) {
 		indicator_leds::blinkLed(IndicatorLED::SYNTH);
 	}
 	else {
@@ -102,11 +104,9 @@ gotError:
 }
 
 bool SaveInstrumentPresetUI::performSave(bool mayOverwrite) {
-
-#if !HAVE_OLED
-	numericDriver.displayLoadingAnimation();
-#endif
-
+	if (display->have7SEG()) {
+		display->displayLoadingAnimation();
+	}
 	Instrument* instrumentToSave = (Instrument*)currentSong->currentClip->output;
 
 	bool isDifferentSlot = !enteredText.equalsCaseIrrespective(&instrumentToSave->name);
@@ -117,11 +117,8 @@ bool SaveInstrumentPresetUI::performSave(bool mayOverwrite) {
 		// We can't save into this slot if another Instrument in this Song already uses it
 		if (currentSong->getInstrumentFromPresetSlot(instrumentTypeToLoad, 0, 0, enteredText.get(), currentDir.get(),
 		                                             false)) {
-			numericDriver.displayPopup(HAVE_OLED ? "Another instrument in the song has the same name / number"
-			                                     : "CANT");
-#if HAVE_OLED
-			OLED::removeWorkingAnimation();
-#endif
+			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_SAME_NAME));
+			display->removeWorkingAnimation();
 			return false;
 		}
 
@@ -130,10 +127,10 @@ bool SaveInstrumentPresetUI::performSave(bool mayOverwrite) {
 	}
 
 	String filePath;
-	int error = getCurrentFilePath(&filePath);
+	int32_t error = getCurrentFilePath(&filePath);
 	if (error) {
 fail:
-		numericDriver.displayError(error);
+		display->displayError(error);
 		return false;
 	}
 
@@ -145,7 +142,7 @@ fail:
 		bool available = gui::context_menu::overwriteFile.setupAndCheckAvailability();
 
 		if (available) { // Will always be true.
-			numericDriver.setNextTransitionDirection(1);
+			display->setNextTransitionDirection(1);
 			openUI(&gui::context_menu::overwriteFile);
 			return true;
 		}
@@ -159,19 +156,17 @@ fail:
 		goto fail;
 	}
 
-#if HAVE_OLED
-	OLED::displayWorkingAnimation("Saving");
-#endif
+	if (display->haveOLED()) {
+		deluge::hid::display::OLED::displayWorkingAnimation("Saving");
+	}
 
 	instrumentToSave->writeToFile(currentSong->currentClip, currentSong);
 
-	char const* endString = (instrumentTypeToLoad == INSTRUMENT_TYPE_SYNTH) ? "\n</sound>\n" : "\n</kit>\n";
+	char const* endString = (instrumentTypeToLoad == InstrumentType::SYNTH) ? "\n</sound>\n" : "\n</kit>\n";
 
 	error =
 	    storageManager.closeFileAfterWriting(filePath.get(), "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", endString);
-#if HAVE_OLED
-	OLED::removeWorkingAnimation();
-#endif
+	display->removeWorkingAnimation();
 	if (error) {
 		goto fail;
 	}
@@ -183,11 +178,7 @@ fail:
 
 	// There's now no chance that we saved over a preset that's already in use in the song, because we didn't allow the user to select such a slot
 
-#if HAVE_OLED
-	OLED::consoleText("Preset saved");
-#else
-	numericDriver.displayPopup("DONE");
-#endif
+	display->consoleText(deluge::l10n::get(deluge::l10n::String::STRING_FOR_PRESET_SAVED));
 	close();
 	return true;
 }
@@ -202,27 +193,27 @@ void SaveInstrumentPresetUI::selectEncoderAction(int8_t offset) {
 
 		Instrument* instrument = (Instrument*)currentSong->currentClip->output;
 
-		int previouslySavedSlot = instrument->name.isEmpty() ? instrument->slot : -1;
+		int32_t previouslySavedSlot = instrument->name.isEmpty() ? instrument->slot : -1;
 
-		int error = storageManager.decideNextSaveableSlot(offset,
+		int32_t error = storageManager.decideNextSaveableSlot(offset,
 				&currentSlot, &currentSubSlot, &enteredText, &currentFileIsFolder,
 				previouslySavedSlot, &currentFileExists, numInstrumentSlots, getThingName(instrumentType), currentDir.get(), instrumentType, (Instrument*)currentSong->currentClip->output);
 		if (error) {
-			numericDriver.displayError(error);
+			display->displayError(error);
 			if (error != ERROR_FOLDER_DOESNT_EXIST) {
 				close();
 			}
 			return;
 		}
 
-		enteredTextEditPos = getMin(enteredTextEditPos, enteredText.getLength());
+		enteredTextEditPos = std::min(enteredTextEditPos, enteredText.getLength());
 
 		currentFilename.set(&enteredText); // Only used for folders.
 	}
 
 	// Editing specific digit of numeric names. Pretty much no one will really be using this anymore
 	else {
-		int jumpSize;
+		int32_t jumpSize;
 		if (numberEditPos == 0) jumpSize = 1;
 		else if (numberEditPos == 1) jumpSize = 10;
 		else jumpSize = 100;
@@ -232,8 +223,8 @@ void SaveInstrumentPresetUI::selectEncoderAction(int8_t offset) {
 		int16_t bestSlotFound;
 		int8_t bestSubSlotFound;
 
-		if (currentSlot >= numSongSlots) currentSlot = 0;
-		else if (currentSlot < 0) currentSlot = numSongSlots - 1;
+		if (currentSlot >= kNumSongSlots) currentSlot = 0;
+		else if (currentSlot < 0) currentSlot = kNumSongSlots - 1;
 
 		// We want the "last" subslot, or -1 if there's none
 
@@ -244,7 +235,7 @@ void SaveInstrumentPresetUI::selectEncoderAction(int8_t offset) {
 		storageManager.findNextInstrumentPreset(-1, instrumentType,
 				&bestSlotFound, &bestSubSlotFound, NULL, NULL, // No folders allowed.
 				currentSlot + 1, -1, NULL, currentDir.get(),
-				&nothing, AVAILABILITY_ANY, &nothingInstrument, &nothing2);
+				&nothing, Availability::ANY, &nothingInstrument, &nothing2);
 
 		if (bestSlotFound == currentSlot) {
 			// If the preset was already saved in this slot, offer a brand new subslot

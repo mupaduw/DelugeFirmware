@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include "RZA1/system/r_typedefs.h"
 #include "io/midi/midi_device_manager.h"
+#include <cstdint>
 
 #define MIDI_MESSAGE_NONE 0
 #define MIDI_MESSAGE_NOTE 1
 #define MIDI_MESSAGE_CC 2
 
 class MIDIDevice;
-
+enum MIDIMatchType { NO_MATCH, CHANNEL, MPE_MEMBER, MPE_MASTER };
 class LearnedMIDI {
 public:
 	LearnedMIDI();
@@ -35,38 +35,38 @@ public:
 		return (!MIDIDeviceManager::differentiatingInputsByDevice || !device || newDevice == device);
 	}
 
-	inline bool equalsChannelOrZone(MIDIDevice* newDevice, int newChannelOrZone) {
+	inline bool equalsChannelOrZone(MIDIDevice* newDevice, int32_t newChannelOrZone) {
 		return (newChannelOrZone == channelOrZone && equalsDevice(newDevice));
 	}
 
-	inline bool equalsNoteOrCC(MIDIDevice* newDevice, int newChannel, int newNoteOrCC) {
+	inline bool equalsNoteOrCC(MIDIDevice* newDevice, int32_t newChannel, int32_t newNoteOrCC) {
 		return (newNoteOrCC == noteOrCC && equalsChannelOrZone(newDevice, newChannel));
 	}
 
-	bool equalsChannelAllowMPE(MIDIDevice* newDevice, int newChannel);
-	bool equalsChannelAllowMPEMasterChannels(MIDIDevice* newDevice, int newChannel);
+	bool equalsChannelAllowMPE(MIDIDevice* newDevice, int32_t newChannel);
+	bool equalsChannelAllowMPEMasterChannels(MIDIDevice* newDevice, int32_t newChannel);
 
 	//Check that note or CC and channel match, does not check if channel in MPE zone
-	inline bool equalsNoteOrCCAllowMPE(MIDIDevice* newDevice, int newChannel, int newNoteOrCC) {
+	inline bool equalsNoteOrCCAllowMPE(MIDIDevice* newDevice, int32_t newChannel, int32_t newNoteOrCC) {
 		return (newNoteOrCC == noteOrCC && equalsChannelAllowMPE(newDevice, newChannel));
 	}
 
-	inline bool equalsNoteOrCCAllowMPEMasterChannels(MIDIDevice* newDevice, int newChannel, int newNoteOrCC) {
+	inline bool equalsNoteOrCCAllowMPEMasterChannels(MIDIDevice* newDevice, int32_t newChannel, int32_t newNoteOrCC) {
 		return (newNoteOrCC == noteOrCC && equalsChannelAllowMPEMasterChannels(newDevice, newChannel));
 	}
-
+	MIDIMatchType checkMatch(MIDIDevice* fromDevice, int32_t channel);
 	inline bool containsSomething() { return (channelOrZone != MIDI_CHANNEL_NONE); }
 
 	// You must have determined that containsSomething() == true before calling this.
 	inline bool isForMPEZone() { return (channelOrZone >= 16); }
 
 	// You must have determined that isForMPEZone() == true before calling this.
-	inline int getMasterChannel() { return (channelOrZone - MIDI_CHANNEL_MPE_LOWER_ZONE) * 15; }
+	inline int32_t getMasterChannel() { return (channelOrZone - MIDI_CHANNEL_MPE_LOWER_ZONE) * 15; }
 
-	void writeAttributesToFile(int midiMessageType);
+	void writeAttributesToFile(int32_t midiMessageType);
 	void writeToFile(char const* commandName,
-	                 int midiMessageType); // Writes the actual tag in addition to the attributes
-	void readFromFile(int midiMessageType);
+	                 int32_t midiMessageType); // Writes the actual tag in addition to the attributes
+	void readFromFile(int32_t midiMessageType);
 
 	inline void writeNoteToFile(char const* commandName) { writeToFile(commandName, MIDI_MESSAGE_NOTE); }
 	inline void writeCCToFile(char const* commandName) { writeToFile(commandName, MIDI_MESSAGE_CC); }

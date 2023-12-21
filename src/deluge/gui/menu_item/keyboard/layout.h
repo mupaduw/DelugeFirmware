@@ -15,31 +15,25 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "storage/flash_storage.h"
+#include "definitions_cxx.hpp"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
+#include "hid/display/display.h"
+#include "storage/flash_storage.h"
+#include "util/misc.h"
 
-namespace menu_item::keyboard {
+namespace deluge::gui::menu_item::keyboard {
 class Layout final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() { soundEditor.currentValue = FlashStorage::keyboardLayout; }
-	void writeCurrentValue() { FlashStorage::keyboardLayout = soundEditor.currentValue; }
-	char const** getOptions() {
-		static char const* options[] = {
-			"QWERTY",
-			"AZERTY",
-#if HAVE_OLED
-			"QWERTZ",
-			NULL
-#else
-			"QRTZ"
-#endif
+	void readCurrentValue() override { this->setValue(FlashStorage::keyboardLayout); }
+	void writeCurrentValue() override { FlashStorage::keyboardLayout = this->getValue<KeyboardLayout>(); }
+	std::vector<std::string_view> getOptions() override {
+		return {
+		    "QWERTY",
+		    "AZERTY",
+		    display->haveOLED() ? "QWERTZ" : "QRTZ",
 		};
-		return options;
-	}
-	int getNumOptions() {
-		return NUM_KEYBOARD_LAYOUTS;
 	}
 };
-} // namespace menu_item::keyboard
+} // namespace deluge::gui::menu_item::keyboard

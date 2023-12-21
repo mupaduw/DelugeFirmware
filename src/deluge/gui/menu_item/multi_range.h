@@ -19,28 +19,31 @@
 #include "menu_item.h"
 #include "range.h"
 
-namespace menu_item {
+namespace deluge::gui::menu_item {
 
 class MultiRange final : public Range {
 public:
-	MultiRange();
+	using Range::Range;
 
-	void beginSession(MenuItem* navigatedBackwardFrom);
-	void selectEncoderAction(int offset);
-	MenuItem* selectButtonPress();
-	void noteOnToChangeRange(int noteCode);
-	bool isRangeDependent() { return true; }
+	void beginSession(MenuItem* navigatedBackwardFrom) override;
+	void selectEncoderAction(int32_t offset) override;
+	MenuItem* selectButtonPress() override;
+	void noteOnToChangeRange(int32_t noteCode);
+	bool isRangeDependent() override { return true; }
 	void deletePress();
 	MenuItem* menuItemHeadingTo;
 
 protected:
-	void getText(char* buffer, int* getLeftLength = NULL, int* getRightLength = NULL, bool mayShowJustOne = true);
-	bool mayEditRangeEdge(RangeEdit whichEdge);
+	void getText(char* buffer, int32_t* getLeftLength = nullptr, int32_t* getRightLength = nullptr,
 
-#if HAVE_OLED
-	void drawPixelsForOled();
-#endif
+	             bool mayShowJustOne = true) override;
+	bool mayEditRangeEdge(RangeEdit whichEdge) override;
+
+	[[nodiscard]] std::string_view getTitle() const override {
+		return l10n::getView(l10n::String::STRING_FOR_NOTE_RANGE);
+	};
+	void drawPixelsForOled() override;
 };
 
 extern MultiRange multiRangeMenu;
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

@@ -16,24 +16,32 @@
 */
 
 #include "gui/context_menu/sample_browser/synth.h"
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
 #include "gui/ui/browser/sample_browser.h"
-#include "hid/display/numeric_driver.h"
-#include "util/functions.h"
 #include "gui/ui/sound_editor.h"
-#include "processing/source.h"
+#include "hid/display/display.h"
 #include "processing/sound/sound.h"
+#include "processing/source.h"
 #include "storage/file_item.h"
+#include "util/functions.h"
 
 namespace deluge::gui::context_menu::sample_browser {
 Synth synth{};
 
 char const* Synth::getTitle() {
-	static char const* title = "Load file(s)";
-	return title;
+	using enum l10n::String;
+	return l10n::get(STRING_FOR_LOAD_FILES);
 }
 
 Sized<char const**> Synth::getOptions() {
-	static char const* options[] = {"Multisamples", "Basic", "Single-cycle", "Wavetable"};
+	using enum l10n::String;
+	static char const* options[] = {
+	    l10n::get(STRING_FOR_MULTISAMPLES), //<
+	    l10n::get(STRING_FOR_BASIC),        //<
+	    l10n::get(STRING_FOR_SINGLE_CYCLE), //<
+	    l10n::get(STRING_FOR_WAVETABLE),    //<
+	};
 	return {options, 4};
 }
 
@@ -41,7 +49,7 @@ bool Synth::isCurrentOptionAvailable() {
 
 	// Multisamples (load entire folder and auto-detect ranges). Will delete all previous Ranges.
 	if (currentOption == 0) {
-		return (soundEditor.currentSound->getSynthMode() != SYNTH_MODE_RINGMOD);
+		return (soundEditor.currentSound->getSynthMode() != SynthMode::RINGMOD);
 	}
 
 	// Apart from that option, none of the other ones are valid if currently sitting on a folder-name.
@@ -52,7 +60,7 @@ bool Synth::isCurrentOptionAvailable() {
 	switch (currentOption) {
 	case 1:
 		// "Basic" Sample - unavailable if ringmod.
-		return (soundEditor.currentSound->getSynthMode() != SYNTH_MODE_RINGMOD);
+		return (soundEditor.currentSound->getSynthMode() != SynthMode::RINGMOD);
 
 	case 3:
 		// WaveTable
@@ -88,7 +96,7 @@ bool Synth::acceptCurrentOption() {
 	}
 }
 
-int Synth::padAction(int x, int y, int on) {
+ActionResult Synth::padAction(int32_t x, int32_t y, int32_t on) {
 	return sampleBrowser.padAction(x, y, on);
 }
 

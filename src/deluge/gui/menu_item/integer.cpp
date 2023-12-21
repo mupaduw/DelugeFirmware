@@ -16,61 +16,55 @@
 */
 
 #include "integer.h"
-#include "hid/display/numeric_driver.h"
 #include "gui/ui/sound_editor.h"
+#include "hid/display/display.h"
 #include <cstring>
-
-#if HAVE_OLED
-#include "hid/display/oled.h"
-#endif
 
 extern "C" {
 #include "util/cfunctions.h"
 }
 
-namespace menu_item {
+namespace deluge::gui::menu_item {
 
-void Integer::selectEncoderAction(int offset) {
-	soundEditor.currentValue += offset;
-	int maxValue = getMaxValue();
-	if (soundEditor.currentValue > maxValue) {
-		soundEditor.currentValue = maxValue;
+void Integer::selectEncoderAction(int32_t offset) {
+	this->setValue(this->getValue() + offset);
+	int32_t maxValue = getMaxValue();
+	if (this->getValue() > maxValue) {
+		this->setValue(maxValue);
 	}
 	else {
-		int minValue = getMinValue();
-		if (soundEditor.currentValue < minValue) {
-			soundEditor.currentValue = minValue;
+		int32_t minValue = getMinValue();
+		if (this->getValue() < minValue) {
+			this->setValue(minValue);
 		}
 	}
 
 	Number::selectEncoderAction(offset);
 }
 
-#if !HAVE_OLED
 void Integer::drawValue() {
-	numericDriver.setTextAsNumber(soundEditor.currentValue);
+	display->setTextAsNumber(this->getValue());
 }
 
 void IntegerWithOff::drawValue() {
-	if (soundEditor.currentValue == 0) {
-		numericDriver.setText("OFF");
+	if (this->getValue() == 0) {
+		display->setText(l10n::get(l10n::String::STRING_FOR_DISABLED));
 	}
 	else {
 		Integer::drawValue();
 	}
 }
-#endif
 
-#if HAVE_OLED
-void Integer::drawInteger(int textWidth, int textHeight, int yPixel) {
+void Integer::drawInteger(int32_t textWidth, int32_t textHeight, int32_t yPixel) {
 	char buffer[12];
-	intToString(soundEditor.currentValue, buffer, 1);
-	OLED::drawStringCentred(buffer, yPixel + OLED_MAIN_TOPMOST_PIXEL, OLED::oledMainImage[0], OLED_MAIN_WIDTH_PIXELS,
-	                        textWidth, textHeight);
+	intToString(this->getValue(), buffer, 1);
+	deluge::hid::display::OLED::drawStringCentred(buffer, yPixel + OLED_MAIN_TOPMOST_PIXEL,
+	                                              deluge::hid::display::OLED::oledMainImage[0], OLED_MAIN_WIDTH_PIXELS,
+	                                              textWidth, textHeight);
 }
 
 void Integer::drawPixelsForOled() {
-	drawInteger(TEXT_HUGE_SPACING_X, TEXT_HUGE_SIZE_Y, 18);
+	drawInteger(kTextHugeSpacingX, kTextHugeSizeY, 18);
 }
 
 void IntegerContinuous::drawPixelsForOled() {
@@ -78,10 +72,9 @@ void IntegerContinuous::drawPixelsForOled() {
 #if OLED_MAIN_HEIGHT_PIXELS == 64
 	drawInteger(13, 15, 20);
 #else
-	drawInteger(TEXT_BIG_SPACING_X, TEXT_BIG_SIZE_Y, 15);
+	drawInteger(kTextBigSpacingX, kTextBigSizeY, 15);
 #endif
 
 	drawBar(35, 10);
 }
-#endif
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

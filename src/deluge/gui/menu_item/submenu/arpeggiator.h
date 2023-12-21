@@ -16,13 +16,24 @@
 */
 #pragma once
 #include "gui/menu_item/submenu.h"
+#include "gui/ui/sound_editor.h"
+#include "model/clip/instrument_clip.h"
+#include "model/song/song.h"
+#include "modulation/arpeggiator.h"
+#include "processing/sound/sound_drum.h"
 
-namespace menu_item::submenu {
+namespace deluge::gui::menu_item::submenu {
 
 class Arpeggiator final : public Submenu {
 public:
-	Arpeggiator() {}
-	Arpeggiator(char const* newName, MenuItem** newItems) : Submenu(newName, newItems) {}
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
+	using Submenu::Submenu;
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override {
+
+		soundEditor.currentArpSettings = soundEditor.editingKit()
+		                                     ? &(static_cast<SoundDrum*>(soundEditor.currentSound))->arpSettings
+		                                     : &(static_cast<InstrumentClip*>(currentSong->currentClip))->arpSettings;
+		Submenu::beginSession(navigatedBackwardFrom);
+	}
 };
-} // namespace menu_item::submenu
+
+} // namespace deluge::gui::menu_item::submenu

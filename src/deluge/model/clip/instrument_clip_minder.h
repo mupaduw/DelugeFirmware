@@ -17,38 +17,38 @@
 
 #pragma once
 
-#include "RZA1/system/r_typedefs.h"
+#include "definitions_cxx.hpp"
 #include "hid/button.h"
 #include "model/clip/clip_minder.h"
+#include <cstdint>
 
 class InstrumentClip;
 class Output;
 class ModelStack;
 
-// This class performs operations on an InstrumentClip that are common to both the InstrumentClipView and KeyboardView.
+// This class performs operations on an InstrumentClip that are common to both the InstrumentClipView, AutomationInstrumentClipView and KeyboardView.
 
 class InstrumentClipMinder : public ClipMinder {
 public:
 	InstrumentClipMinder();
 	static void redrawNumericDisplay();
-	void createNewInstrument(int newInstrumentType);
+	void displayOrLanguageChanged();
+	void createNewInstrument(InstrumentType newInstrumentType);
 	void setLedStates();
 	void focusRegained();
-	int buttonAction(hid::Button b, bool on, bool inCardRoutine);
+	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine);
 	void calculateDefaultRootNote();
 	void drawActualNoteCode(int16_t noteCode);
 	void cycleThroughScales();
-	void displayScaleName(int scale);
+	void displayScaleName(int32_t scale);
 	void displayCurrentScaleName();
-	void selectEncoderAction(int offset);
-	static void drawMIDIControlNumber(int controlNumber, bool automationExists);
+	void selectEncoderAction(int32_t offset);
+	static void drawMIDIControlNumber(int32_t controlNumber, bool automationExists);
 	bool makeCurrentClipActiveOnInstrumentIfPossible(ModelStack* modelStack);
-	void changeInstrumentType(int newInstrumentType);
+	void changeInstrumentType(InstrumentType newInstrumentType);
 	void opened();
 
-#if HAVE_OLED
 	void renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]);
-#endif
 
 	static int16_t
 	    defaultRootNote; // Stores the calculated "default" root note between the user pressing the scale-mode button and releasing it

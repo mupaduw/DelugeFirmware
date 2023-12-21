@@ -17,124 +17,137 @@
 
 #include "dsp/master_compressor/master_compressor.h"
 #include "dsp/stereo_sample.h"
-
+#include "io/debug/print.h"
+#include "model/song/song.h"
+#include "modulation/params/param_set.h"
+#include "processing/engines/audio_engine.h"
+#include "util/fast_fixed_math.h"
 MasterCompressor::MasterCompressor() {
-	compressor.setSampleRate(44100);
-	compressor.initRuntime();
-	compressor.setAttack(10.0);
-	compressor.setRelease(100.0);
-	compressor.setThresh(0.0);       //threshold (dB) 0...-69
-	compressor.setRatio(1.0 / 4.00); //ratio (compression: < 1 ; expansion: > 1)
-	makeup = 1.0;                    //value;
-	gr = 0.0;
-	wet = 1.0;
+
+	//an appropriate range is 0-50*one q 15
+
+	thresholdKnobPos = 0;
+	sideChainKnobPos = ONE_Q31 >> 1;
+	//this is 2:1
+	ratioKnobPos = 0;
+
+	currentVolumeL = 0;
+	currentVolumeR = 0;
+	er = 0;
+	setSidechain(sideChainKnobPos);
+}
+//16 is ln(1<<24) - 1, i.e. where we start clipping
+//since this applies to output
+void MasterCompressor::updateER(float numSamples) {
+
+	//int32_t volumePostFX = getParamNeutralValue(Param::Global::VOLUME_POST_FX);
+	float songVolume;
+	if (currentSong) {
+		int32_t volumePostFX =
+		    getFinalParameterValueVolume(
+		        134217728, cableToLinearParamShortcut(currentSong->paramManager.getUnpatchedParamSet()->getValue(
+		                       Param::Unpatched::GlobalEffectable::VOLUME)))
+		    >> 1;
+		songVolume = std::log(volumePostFX) - 2;
+	}
+	else {
+		//16 is about the level of a single synth voice at max volume
+		songVolume = 16;
+	}
+	threshdb = songVolume * threshold;
+	//this is effectively where song volume gets applied, so we'll stick an IIR filter (e.g. the envelope) here to reduce clicking
+	float lastER = er;
+	er = std::max<float>((songVolume - threshdb - 1) * ratio, 0);
+	//using the envelope is convenient since it means makeup gain and compression amount change at the same rate
+	er = runEnvelope(lastER, er, numSamples);
 }
 
-void MasterCompressor::render(StereoSample* buffer, uint16_t numSamples, int32_t masterVolumeAdjustmentL,
-                              int32_t masterVolumeAdjustmentR) {
+void MasterCompressor::render(StereoSample* buffer, uint16_t numSamples, q31_t volAdjustL, q31_t volAdjustR) {
+	//we update this every time since we won't know if the song volume changed
+	updateER(numSamples);
+
+	float over = std::max<float>(0, (rms - threshdb));
+
+	state = runEnvelope(state, over, numSamples);
+
+	float reduction = -state * ratio;
+
+	//this is the most gain available without overflow
+	float dbGain = 0.85 + er + reduction;
+
+	float gain = exp((dbGain));
+	gain = std::min<float>(gain, 31);
+
+	float finalVolumeL = gain * float(volAdjustL >> 9);
+	float finalVolumeR = gain * float(volAdjustR >> 9);
+
+	q31_t amplitudeIncrementL = ((int32_t)((finalVolumeL - (currentVolumeL >> 8)) / float(numSamples))) << 8;
+	q31_t amplitudeIncrementR = ((int32_t)((finalVolumeR - (currentVolumeR >> 8)) / float(numSamples))) << 8;
 
 	StereoSample* thisSample = buffer;
 	StereoSample* bufferEnd = buffer + numSamples;
-	if (compressor.getThresh() < -0.001) {
-		double adjustmentL = (masterVolumeAdjustmentL) / 4294967296.0; //  *2.0 is <<1 from multiply_32x32_rshift32
-		double adjustmentR = (masterVolumeAdjustmentR) / 4294967296.0;
-		if (adjustmentL < 0.000001)
-			adjustmentL = 0.000001;
-		if (adjustmentR < 0.000001)
-			adjustmentR = 0.000001;
-		do {
-			double l = thisSample->l / (double)ONE_Q31 / adjustmentL;
-			double r = thisSample->r / (double)ONE_Q31 / adjustmentR;
-			double rawl = l;
-			double rawr = r;
-			compressor.process(l, r);
-			if (thisSample == bufferEnd - 1 && fabs(rawl) > 0.00000001 && fabs(rawr) > 0.00000001) {
-				gr = chunkware_simple::lin2dB(l / rawl);
-				gr = std::min(gr, chunkware_simple::lin2dB(r / rawr));
-			}
 
-			l = l * makeup;
-			r = r * makeup;
+	do {
 
-			if (wet < 0.9999) {
-				l = rawl * (1.0 - wet) + l * wet;
-				r = rawr * (1.0 - wet) + r * wet;
-			}
+		currentVolumeL += amplitudeIncrementL;
+		currentVolumeR += amplitudeIncrementR;
+		// Apply post-fx and post-reverb-send volume
+		thisSample->l = multiply_32x32_rshift32(thisSample->l, currentVolumeL) << 2;
+		thisSample->r = multiply_32x32_rshift32(thisSample->r, currentVolumeR) << 2;
 
-			thisSample->l = l * ONE_Q31;
-			thisSample->r = r * ONE_Q31;
-			thisSample->l = multiply_32x32_rshift32(thisSample->l, masterVolumeAdjustmentL);
-			thisSample->r = multiply_32x32_rshift32(thisSample->r, masterVolumeAdjustmentR);
+	} while (++thisSample != bufferEnd);
+	//for LEDs
+	//4 converts to dB, then quadrupled for display range since a 30db reduction is basically killing the signal
+	gainReduction = std::clamp<int32_t>(-(reduction)*4 * 4, 0, 127);
+	//calc compression for next round (feedback compressor)
+	rms = calc_rms(buffer, numSamples);
+}
 
-		} while (++thisSample != bufferEnd);
+float MasterCompressor::runEnvelope(float current, float desired, float numSamples) {
+	float s;
+	if (desired > current) {
+		s = desired + exp(a_ * numSamples) * (current - desired);
 	}
+	else {
+		s = desired + exp(r_ * numSamples) * (current - desired);
+	}
+	return s;
 }
 
-namespace chunkware_simple {
-//-------------------------------------------------------------
-// envelope detector
-//-------------------------------------------------------------
-EnvelopeDetector::EnvelopeDetector(double timeConstant, double sampleRate) {
-	assert(sampleRate > 0.0);
-	assert(timeConstant > 0.0);
-	sampleRate_ = sampleRate;
-	timeConstant_ = timeConstant;
-	setCoef();
-}
-//-------------------------------------------------------------
-void EnvelopeDetector::setTc(double timeConstant) {
-	assert(timeConstant > 0.0);
-	timeConstant_ = timeConstant;
-	setCoef();
-}
-//-------------------------------------------------------------
-void EnvelopeDetector::setSampleRate(double sampleRate) {
-	assert(sampleRate > 0.0);
-	sampleRate_ = sampleRate;
-	setCoef();
-}
-//-------------------------------------------------------------
-void EnvelopeDetector::setCoef(void) {
-	nSamplesInverse_ = exp(-1000.0 / (timeConstant_ * sampleRate_));
-}
+//output range is 0-21 (2^31)
+//dac clipping is at 16
+float MasterCompressor::calc_rms(StereoSample* buffer, uint16_t numSamples) {
+	StereoSample* thisSample = buffer;
+	StereoSample* bufferEnd = buffer + numSamples;
+	q31_t sum = 0;
+	q31_t offset = 0; //to remove dc offset
+	float lastMean = mean;
+	do {
+		q31_t l = thisSample->l - hpfL.doFilter(thisSample->l, a);
+		q31_t r = thisSample->r - hpfL.doFilter(thisSample->r, a);
+		q31_t s = std::max(std::abs(l), std::abs(r));
+		sum += multiply_32x32_rshift32(s, s) << 1;
 
-//-------------------------------------------------------------
-// attack/release envelope
-//-------------------------------------------------------------
-AttRelEnvelope::AttRelEnvelope(double att_ms, double rel_ms, double sampleRate)
-    : attackEnvelope_(att_ms, sampleRate), releaseEnvelope_(rel_ms, sampleRate) {
-}
-//-------------------------------------------------------------
-void AttRelEnvelope::setAttack(double ms) {
-	attackEnvelope_.setTc(ms);
-}
-//-------------------------------------------------------------
-void AttRelEnvelope::setRelease(double ms) {
-	releaseEnvelope_.setTc(ms);
-}
-//-------------------------------------------------------------
-void AttRelEnvelope::setSampleRate(double sampleRate) {
-	attackEnvelope_.setSampleRate(sampleRate);
-	releaseEnvelope_.setSampleRate(sampleRate);
-}
+	} while (++thisSample != bufferEnd);
 
-//-------------------------------------------------------------
-// simple compressor
-//-------------------------------------------------------------
-SimpleComp::SimpleComp() : AttRelEnvelope(10.0, 100.0), threshdB_(0.0), ratio_(1.0), envdB_(DC_OFFSET) {
-}
-//-------------------------------------------------------------
-void SimpleComp::setThresh(double dB) {
-	threshdB_ = dB;
-}
-//-------------------------------------------------------------
-void SimpleComp::setRatio(double ratio) {
-	assert(ratio > 0.0);
-	ratio_ = ratio;
-}
-//-------------------------------------------------------------
-void SimpleComp::initRuntime(void) {
-	envdB_ = DC_OFFSET;
-}
+	float ns = float(numSamples);
+	mean = (float(sum) / ONE_Q31f) / ns;
+	//warning this is not good math but it's pretty close and way cheaper than doing it properly
+	//good math would use a long FIR, this is a one pole IIR instead
+	//the more samples we have, the more weight we put on the current mean to avoid response slowing down
+	//at high cpu loads
+	mean = (mean * ns + lastMean) / (1 + ns);
+	float rms = ONE_Q31 * sqrt(mean);
 
-} // end namespace chunkware_simple
+	float logmean = std::log(std::max(rms, 1.0f));
+
+	return logmean;
+}
+//takes in knob positions in the range 0-ONE_Q31
+void MasterCompressor::setup(q31_t a, q31_t r, q31_t t, q31_t rat, q31_t fc) {
+	setAttack(a);
+	setRelease(r);
+	setThreshold(t);
+	setRatio(rat);
+	setSidechain(fc);
+}

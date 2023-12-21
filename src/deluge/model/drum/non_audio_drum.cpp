@@ -15,13 +15,15 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "gui/views/instrument_clip_view.h"
 #include "model/drum/non_audio_drum.h"
+#include "definitions_cxx.hpp"
 #include "gui/ui/ui.h"
+#include "gui/views/automation_instrument_clip_view.h"
+#include "gui/views/instrument_clip_view.h"
 #include "storage/storage_manager.h"
 #include "util/functions.h"
 
-NonAudioDrum::NonAudioDrum(int newType) : Drum(newType) {
+NonAudioDrum::NonAudioDrum(DrumType newType) : Drum(newType) {
 	state = false;
 	channelEncoderCurrentOffset = 0;
 }
@@ -56,7 +58,8 @@ int8_t NonAudioDrum::getModKnobLevel(uint8_t whichModEncoder, ParamManagerBase* 
 int8_t NonAudioDrum::modEncoderAction(ModelStackWithThreeMainThings* modelStack, int8_t offset,
                                       uint8_t whichModEncoder) {
 
-	if (getCurrentUI() == &instrumentClipView && currentUIMode == UI_MODE_AUDITIONING) {
+	if ((getCurrentUI() == &instrumentClipView || getCurrentUI() == &automationInstrumentClipView)
+	    && currentUIMode == UI_MODE_AUDITIONING) {
 		if (whichModEncoder == 0) {
 			modChange(modelStack, offset, &channelEncoderCurrentOffset, &channel, getNumChannels());
 		}
@@ -67,12 +70,12 @@ int8_t NonAudioDrum::modEncoderAction(ModelStackWithThreeMainThings* modelStack,
 
 extern int16_t zeroMPEValues[];
 
-void NonAudioDrum::modChange(ModelStackWithThreeMainThings* modelStack, int offset, int8_t* encoderOffset,
-                             uint8_t* value, int numValues) {
+void NonAudioDrum::modChange(ModelStackWithThreeMainThings* modelStack, int32_t offset, int8_t* encoderOffset,
+                             uint8_t* value, int32_t numValues) {
 
 	*encoderOffset += offset;
 
-	int valueChange;
+	int32_t valueChange;
 	if (*encoderOffset >= 4) {
 		valueChange = 1;
 	}
@@ -90,7 +93,7 @@ void NonAudioDrum::modChange(ModelStackWithThreeMainThings* modelStack, int offs
 
 	*encoderOffset = 0;
 
-	int newValue = (int)*value + valueChange;
+	int32_t newValue = (int32_t)*value + valueChange;
 	if (newValue < 0) {
 		newValue += numValues;
 	}

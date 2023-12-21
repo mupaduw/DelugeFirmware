@@ -15,21 +15,27 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
-#include "processing/engines/audio_engine.h"
 #include "gui/ui/sound_editor.h"
+#include "processing/engines/audio_engine.h"
+#include "util/misc.h"
 
-namespace menu_item::monitor {
+namespace deluge::gui::menu_item::monitor {
 class Mode final : public Selection {
 public:
 	using Selection::Selection;
 
-	void readCurrentValue() { soundEditor.currentValue = AudioEngine::inputMonitoringMode; }
-	void writeCurrentValue() { AudioEngine::inputMonitoringMode = soundEditor.currentValue; }
-	char const** getOptions() {
-		static char const* options[] = {"Conditional", "On", "Off", NULL};
-		return options;
+	void readCurrentValue() override { this->setValue(AudioEngine::inputMonitoringMode); }
+	void writeCurrentValue() override { AudioEngine::inputMonitoringMode = this->getValue<InputMonitoringMode>(); }
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {
+		    l10n::getView(STRING_FOR_CONDITIONAL),
+		    l10n::getView(STRING_FOR_ENABLED),
+		    l10n::getView(STRING_FOR_DISABLED),
+		};
 	}
-	int getNumOptions() { return NUM_INPUT_MONITORING_MODES; }
 };
-} // namespace menu_item::monitor
+} // namespace deluge::gui::menu_item::monitor

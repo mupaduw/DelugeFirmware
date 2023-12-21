@@ -15,29 +15,47 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "model/mod_controllable/mod_controllable_audio.h"
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
-#include "hid/display/numeric_driver.h"
 #include "gui/ui/sound_editor.h"
+#include "model/mod_controllable/mod_controllable_audio.h"
+#include "model/settings/runtime_feature_settings.h"
+#include "util/misc.h"
 
-namespace menu_item::mod_fx {
+namespace deluge::gui::menu_item::mod_fx {
 
 class Type : public Selection {
 public:
 	using Selection::Selection;
 
-	void readCurrentValue() override { soundEditor.currentValue = soundEditor.currentModControllable->modFXType; }
+	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->modFXType); }
 	void writeCurrentValue() override {
-		if (!soundEditor.currentModControllable->setModFXType(soundEditor.currentValue)) {
-			numericDriver.displayError(ERROR_INSUFFICIENT_RAM);
+		if (!soundEditor.currentModControllable->setModFXType(this->getValue<ModFXType>())) {
+			display->displayError(ERROR_INSUFFICIENT_RAM);
 		}
 	}
 
-	char const** getOptions() override {
-		static char const* options[] = {"OFF", "FLANGER", "CHORUS", "PHASER", "STEREO CHORUS", NULL};
-		return options;
-	}
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::EnableGrainFX) == RuntimeFeatureStateToggle::Off) {
+			return {
+			    l10n::getView(STRING_FOR_DISABLED),      //<
+			    l10n::getView(STRING_FOR_FLANGER),       //<
+			    l10n::getView(STRING_FOR_CHORUS),        //<
+			    l10n::getView(STRING_FOR_PHASER),        //<
+			    l10n::getView(STRING_FOR_STEREO_CHORUS), //<
+			};
+		}
 
-	int getNumOptions() override { return NUM_MOD_FX_TYPES; }
+		return {
+		    l10n::getView(STRING_FOR_DISABLED),      //<
+		    l10n::getView(STRING_FOR_FLANGER),       //<
+		    l10n::getView(STRING_FOR_CHORUS),        //<
+		    l10n::getView(STRING_FOR_PHASER),        //<
+		    l10n::getView(STRING_FOR_STEREO_CHORUS), //<
+		    l10n ::getView(STRING_FOR_GRAIN),        //<
+		};
+	}
 };
-} // namespace menu_item::mod_fx
+} // namespace deluge::gui::menu_item::mod_fx

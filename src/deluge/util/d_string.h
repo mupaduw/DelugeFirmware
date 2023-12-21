@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include "RZA1/system/r_typedefs.h"
+#include "functions.h"
+#include <cstdint>
+#include <cstring>
 
 extern const char nothing;
 
@@ -27,17 +29,17 @@ public:
 	//String(String* otherString); // BEWARE - using this on stack instances sometimes just caused crashes and stuff. Made no sense. Instead, constructing then calling set() works
 	~String();
 	void clear(bool destructing = false);
-	int set(char const* newChars, int newLength = -1);
+	int32_t set(char const* newChars, int32_t newLength = -1);
 	void set(String* otherString);
 	void beenCloned();
-	int getLength();
-	int shorten(int newLength);
-	int concatenateAtPos(char const* newChars, int pos, int newCharsLength = -1);
-	int concatenateInt(int32_t number, int minNumDigits = 1);
-	int setInt(int32_t number, int minNumDigits = 1);
-	int setChar(char newChar, int pos);
-	int concatenate(String* otherString);
-	int concatenate(char const* newChars);
+	int32_t getLength();
+	int32_t shorten(int32_t newLength);
+	int32_t concatenateAtPos(char const* newChars, int32_t pos, int32_t newCharsLength = -1);
+	int32_t concatenateInt(int32_t number, int32_t minNumDigits = 1);
+	int32_t setInt(int32_t number, int32_t minNumDigits = 1);
+	int32_t setChar(char newChar, int32_t pos);
+	int32_t concatenate(String* otherString);
+	int32_t concatenate(char const* newChars);
 	bool equals(char const* otherChars);
 	bool equalsCaseIrrespective(char const* otherChars);
 
@@ -72,3 +74,40 @@ private:
 
 	char* stringMemory;
 };
+
+/// A string buffer with utility functions to append and format contents.
+/// does not handle allocation
+class StringBuf {
+	// Not templated to optimize binary size.
+public:
+	StringBuf(char* buf, size_t capacity) : capacity_(capacity), buf_(buf) {}
+
+	void append(const char* str) { ::strncat(buf_, str, capacity_ - size()); }
+	void append(char c) { ::strncat(buf_, &c, 1); }
+	void clear() { buf_[0] = 0; }
+
+	// TODO: Validate buffer size. This will overflow
+	void appendInt(int i, int minChars = 1) { intToString(i, buf_ + size(), minChars); }
+	void appendHex(int i, int minChars = 1) { intToHex(i, buf_ + size(), minChars); }
+
+	[[nodiscard]] char* data() { return buf_; }
+	[[nodiscard]] const char* data() const { return buf_; }
+	[[nodiscard]] const char* c_str() const { return buf_; }
+
+	[[nodiscard]] std::size_t capacity() const { return capacity_; }
+	[[nodiscard]] std::size_t size() const { return ::strlen(buf_); }
+
+	[[nodiscard]] bool empty() const { return buf_[0] == 0; }
+
+	bool operator==(const char* rhs) const { return strcmp(buf_, rhs) == 0; }
+	bool operator==(StringBuf const& rhs) const { return strcmp(buf_, rhs.c_str()) == 0; }
+
+private:
+	size_t capacity_;
+	char* buf_;
+};
+
+/// Define a `StringBuf` that uses an array placed on the stack.
+#define DEF_STACK_STRING_BUF(name, capacity)                                                                           \
+	char name##__buf[capacity] = {0};                                                                                  \
+	StringBuf name = {name##__buf, capacity}

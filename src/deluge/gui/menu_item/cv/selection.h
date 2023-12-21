@@ -15,47 +15,45 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "gui/l10n/l10n.h"
+#include "gui/menu_item/cv/submenu.h"
 #include "gui/menu_item/selection.h"
-#include "gui/ui/sound_editor.h"
 #include "gui/menu_item/submenu.h"
-#include "volts.h"
+#include "gui/ui/sound_editor.h"
 #include "transpose.h"
+#include "volts.h"
+#include <ranges>
 
-extern void setCvNumberForTitle(int m);
-extern menu_item::Submenu cvSubmenu;
+extern void setCvNumberForTitle(int32_t m);
+extern deluge::gui::menu_item::cv::Submenu cvSubmenu;
 
-namespace menu_item::cv {
-#if HAVE_OLED
-static char const* cvOutputChannel[] = {"CV output 1", "CV output 2", NULL};
-#else
-static char const* cvOutputChannel[] = {"Out1", "Out2", NULL};
-#endif
-
+namespace deluge::gui::menu_item::cv {
 class Selection final : public menu_item::Selection {
 public:
-	Selection(char const* newName = NULL) : menu_item::Selection(newName) {
-#if HAVE_OLED
-		basicTitle = "CV outputs";
-#endif
-		basicOptions = cvOutputChannel;
-	}
-	void beginSession(MenuItem* navigatedBackwardFrom) {
-		if (!navigatedBackwardFrom) {
-			soundEditor.currentValue = 0;
+	using menu_item::Selection::Selection;
+
+	void beginSession(MenuItem* navigatedBackwardFrom) override {
+		if (navigatedBackwardFrom == nullptr) {
+			this->setValue(0);
 		}
 		else {
-			soundEditor.currentValue = soundEditor.currentSourceIndex;
+			this->setValue(soundEditor.currentSourceIndex);
 		}
 		menu_item::Selection::beginSession(navigatedBackwardFrom);
 	}
 
-	MenuItem* selectButtonPress() {
-		soundEditor.currentSourceIndex = soundEditor.currentValue;
-#if HAVE_OLED
-		cvSubmenu.basicTitle = cvOutputChannel[soundEditor.currentValue];
-		setCvNumberForTitle(soundEditor.currentValue);
-#endif
+	MenuItem* selectButtonPress() override {
+		soundEditor.currentSourceIndex = this->getValue();
+		setCvNumberForTitle(this->getValue());
 		return &cvSubmenu;
 	}
+
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		static auto cv1 = l10n::getView(STRING_FOR_CV_OUTPUT_1);
+		static auto cv2 = l10n::getView(STRING_FOR_CV_OUTPUT_2);
+
+		return {cv1, cv2};
+	}
 };
-} // namespace menu_item::cv
+} // namespace deluge::gui::menu_item::cv

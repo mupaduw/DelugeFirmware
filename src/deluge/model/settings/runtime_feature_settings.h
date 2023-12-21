@@ -17,44 +17,64 @@
 
 #pragma once
 
-#include <cstdint>
-#include "util/d_string.h"
 #include "util/container/array/resizeable_array.h"
 
-#define RUNTIME_FEATURE_SETTING_MAX_OPTIONS 8
+#include <array>
+#include <cstdint>
+#include <string_view>
+#include <vector>
 
-namespace menu_item::runtime_feature {
+namespace deluge::gui::menu_item::runtime_feature {
 class Setting;
 class Settings;
-} // namespace menu_item::runtime_feature
+class DevSysexSetting;
+} // namespace deluge::gui::menu_item::runtime_feature
 
 // State declarations
 enum RuntimeFeatureStateToggle : uint32_t { Off = 0, On = 1 };
 
 // Declare additional enums for specific multi state settings (e.g. like RuntimeFeatureStateTrackLaunchStyle)
+enum RuntimeFeatureStateSyncScalingAction : uint32_t { SyncScaling = 0, Fill = 1 };
 
-/// Every setting needs to be delcared in here
+/// Every setting needs to be declared in here
 enum RuntimeFeatureSettingType : uint32_t {
 	DrumRandomizer,
-	MasterCompressorFx,
 	Quantize,
 	FineTempoKnob,
 	PatchCableResolution,
+	CatchNotes,
+	DeleteUnusedKitRows,
+	AltGoldenKnobDelayParams,
+	QuantizedStutterRate,
+	AutomationClearClip,
+	AutomationNudgeNote,
+	AutomationShiftClip,
+	AutomationInterpolate,
+	AutomationDisableAuditionPadShortcuts,
+	DevSysexAllowed,
+	SyncScalingAction,
+	HighlightIncomingNotes,
+	DisplayNornsLayout,
+	ShiftIsSticky,
+	LightShiftLed,
+	EnableGrainFX,
 	MaxElement // Keep as boundary
 };
 
 /// Definition for selectable options
 struct RuntimeFeatureSettingOption {
-	const char* displayName;
+	std::string_view displayName;
 	uint32_t value; // Value to be defined as typed Enum above
 };
 
 /// Every setting keeps its metadata and value in here
 struct RuntimeFeatureSetting {
-	const char* displayName;
-	const char* xmlName;
+	std::string_view displayName;
+	std::string_view xmlName;
 	uint32_t value;
-	RuntimeFeatureSettingOption options[RUNTIME_FEATURE_SETTING_MAX_OPTIONS]; // Limited to safe memory
+
+	// Limited to safe memory
+	std::vector<RuntimeFeatureSettingOption> options;
 };
 
 /// Encapsulating class
@@ -65,19 +85,27 @@ public:
 	// Traded type safety for option values for code simplicity and size, use enum from above to compare
 	inline uint32_t get(RuntimeFeatureSettingType type) { return settings[type].value; };
 
+	/**
+	 * Set a runtime feature setting.
+	 *
+	 * Make sure when you use this the settings are eventually written back to the SDCard!
+	 */
+	inline void set(RuntimeFeatureSettingType type, uint32_t value) { settings[type].value = value; }
+
 	void init();
 	void readSettingsFromFile();
 	void writeSettingsToFile();
 
 protected:
-	RuntimeFeatureSetting settings[RuntimeFeatureSettingType::MaxElement] = {};
+	std::array<RuntimeFeatureSetting, RuntimeFeatureSettingType::MaxElement> settings = {};
 
 private:
 	ResizeableArray unknownSettings;
 
 public:
-	friend class menu_item::runtime_feature::Setting;
-	friend class menu_item::runtime_feature::Settings;
+	friend class deluge::gui::menu_item::runtime_feature::Setting;
+	friend class deluge::gui::menu_item::runtime_feature::Settings;
+	friend class deluge::gui::menu_item::runtime_feature::DevSysexSetting;
 };
 
 /// Static instance for external access

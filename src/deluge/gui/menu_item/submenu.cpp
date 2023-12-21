@@ -1,183 +1,145 @@
-/*
- * Copyright © 2017-2023 Synthstrom Audible Limited
- *
- * This file is part of The Synthstrom Audible Deluge Firmware.
- *
- * The Synthstrom Audible Deluge Firmware is free software: you can redistribute it and/or modify it under the
- * terms of the GNU General Public License as published by the Free Software Foundation,
- * either version 3 of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along with this program.
- * If not, see <https://www.gnu.org/licenses/>.
-*/
-
-#include "processing/engines/audio_engine.h"
-#include "model/clip/instrument_clip.h"
-#include "processing/sound/sound.h"
-#include "processing/sound/sound_drum.h"
 #include "submenu.h"
-#include "hid/display/numeric_driver.h"
-#include "gui/ui/sound_editor.h"
-#include "model/song/song.h"
-#include "model/instrument/instrument.h"
 
-extern "C" {
-#if HAVE_OLED
-#include "RZA1/oled/oled_low_level.h"
-#endif
-}
-
-namespace menu_item {
-
+namespace deluge::gui::menu_item {
 void Submenu::beginSession(MenuItem* navigatedBackwardFrom) {
-	soundEditor.currentSubmenuItem = items;
+	current_item_ = items.begin();
 	soundEditor.menuCurrentScroll = 0;
-	soundEditor.currentMultiRange = NULL;
-	if (navigatedBackwardFrom) {
-		while (*soundEditor.currentSubmenuItem != navigatedBackwardFrom) {
-			if (!*soundEditor.currentSubmenuItem) { // If desired item not found
-				soundEditor.currentSubmenuItem = items;
+	soundEditor.currentMultiRange = nullptr;
+	if (navigatedBackwardFrom != nullptr) {
+		for (; *current_item_ != navigatedBackwardFrom; current_item_++) {
+			if (current_item_ == items.end()) { // If desired item not found
+				current_item_ = items.begin();
 				break;
 			}
-			soundEditor.currentSubmenuItem++;
 		}
 	}
-	while (!(*soundEditor.currentSubmenuItem)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex)) {
-		soundEditor.currentSubmenuItem++;
-		if (!*soundEditor.currentSubmenuItem) { // Not sure we need this since we don't wrap submenu items?
-			soundEditor.currentSubmenuItem = items;
+	while (!(*current_item_)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex)) {
+		current_item_++;
+		if (current_item_ == items.end()) { // Not sure we need this since we don't wrap submenu items?
+			current_item_ = items.begin();
 		}
 	}
-#if !HAVE_OLED
-	updateDisplay();
-#endif
+	if (display->have7SEG()) {
+		updateDisplay();
+	}
 }
 
 void Submenu::updateDisplay() {
-#if HAVE_OLED
-	renderUIsForOled();
-#else
-	(*soundEditor.currentSubmenuItem)->drawName();
-#endif
+	if (display->haveOLED()) {
+		renderUIsForOled();
+	}
+	else {
+		(*current_item_)->drawName();
+	}
 }
 
-#if HAVE_OLED
 void Submenu::drawPixelsForOled() {
-	char const* itemNames[OLED_MENU_NUM_OPTIONS_VISIBLE];
-	for (int i = 0; i < OLED_MENU_NUM_OPTIONS_VISIBLE; i++) {
-		itemNames[i] = NULL;
-	}
+	int32_t selectedRow = soundEditor.menuCurrentScroll;
 
-	int selectedRow = soundEditor.menuCurrentScroll;
-	itemNames[selectedRow] = (*soundEditor.currentSubmenuItem)->getName();
-
-	MenuItem** thisSubmenuItem = soundEditor.currentSubmenuItem;
-	for (int i = selectedRow + 1; i < OLED_MENU_NUM_OPTIONS_VISIBLE; i++) {
-		do {
-			thisSubmenuItem++;
-			if (!*thisSubmenuItem) {
-				goto searchBack;
-			}
-		} while (!(*thisSubmenuItem)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex));
-
-		itemNames[i] = (*thisSubmenuItem)->getName();
-	}
-
-searchBack:
-	thisSubmenuItem = soundEditor.currentSubmenuItem;
-	for (int i = selectedRow - 1; i >= 0; i--) {
-		do {
-			if (thisSubmenuItem == items) {
-				goto doneSearching;
-			}
-			thisSubmenuItem--;
-		} while (!(*thisSubmenuItem)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex));
-
-		itemNames[i] = (*thisSubmenuItem)->getName();
-	}
-
-doneSearching:
-	drawItemsForOled(itemNames, selectedRow);
-}
-#endif
-
-void Submenu::selectEncoderAction(int offset) {
-
-	MenuItem** thisSubmenuItem = soundEditor.currentSubmenuItem;
-
-	do {
-		if (offset >= 0) {
-			thisSubmenuItem++;
-			if (!*thisSubmenuItem) {
-#if HAVE_OLED
-				return;
-#else
-				thisSubmenuItem = items;
-#endif
-			}
+	// This finds the next relevant submenu item
+	static_vector<std::string_view, kOLEDMenuNumOptionsVisible> nextItemNames = {};
+	int32_t idx = selectedRow;
+	for (auto it = current_item_; it != this->items.end() && idx < kOLEDMenuNumOptionsVisible; it++) {
+		if ((*it)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex)) {
+			nextItemNames.push_back((*it)->getName());
+			idx++;
 		}
-		else {
-			if (thisSubmenuItem == items) {
-#if HAVE_OLED
-				return;
-#else
-				while (*(thisSubmenuItem + 1)) {
-					thisSubmenuItem++;
+	}
+
+	static_vector<std::string_view, kOLEDMenuNumOptionsVisible> prevItemNames = {};
+	idx = selectedRow - 1;
+	for (auto it = current_item_ - 1; it != this->items.begin() - 1 && idx >= 0; it--) {
+		if ((*it)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex)) {
+			prevItemNames.push_back((*it)->getName());
+			idx--;
+		}
+	}
+	std::reverse(prevItemNames.begin(), prevItemNames.end());
+
+	if (!prevItemNames.empty()) {
+		prevItemNames.insert(prevItemNames.end(), nextItemNames.begin(), nextItemNames.end());
+		drawItemsForOled(prevItemNames, selectedRow);
+	}
+	else {
+		drawItemsForOled(nextItemNames, selectedRow);
+	}
+}
+
+void Submenu::selectEncoderAction(int32_t offset) {
+	int32_t sign = (offset > 0) ? 1 : ((offset < 0) ? -1 : 0);
+	auto thisSubmenuItem = current_item_;
+
+	for (size_t i = 0; i < std::abs(offset); ++i) {
+		do {
+			if (offset >= 0) {
+				thisSubmenuItem++;
+				if (thisSubmenuItem >= items.end()) {
+					if (display->haveOLED()) {
+						updateDisplay();
+						return;
+					}
+					// 7SEG wraps
+					thisSubmenuItem = items.begin();
 				}
-#endif
 			}
 			else {
-				thisSubmenuItem--;
+				if (thisSubmenuItem <= items.begin()) {
+					if (display->haveOLED()) {
+						updateDisplay();
+						return;
+					}
+					// 7SEG wraps
+					thisSubmenuItem = (items.end() - 1);
+				}
+				else {
+					thisSubmenuItem--;
+				}
+			}
+		} while (!(*thisSubmenuItem)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex));
+
+		current_item_ = thisSubmenuItem;
+
+		if (display->haveOLED()) {
+			soundEditor.menuCurrentScroll += sign;
+			if (soundEditor.menuCurrentScroll < 0) {
+				soundEditor.menuCurrentScroll = 0;
+			}
+			else if (soundEditor.menuCurrentScroll > kOLEDMenuNumOptionsVisible - 1) {
+				soundEditor.menuCurrentScroll = kOLEDMenuNumOptionsVisible - 1;
 			}
 		}
-	} while (!(*thisSubmenuItem)->isRelevant(soundEditor.currentSound, soundEditor.currentSourceIndex));
-
-	soundEditor.currentSubmenuItem = thisSubmenuItem;
-
-#if HAVE_OLED
-	soundEditor.menuCurrentScroll += offset;
-	if (soundEditor.menuCurrentScroll < 0) {
-		soundEditor.menuCurrentScroll = 0;
 	}
-	else if (soundEditor.menuCurrentScroll > OLED_MENU_NUM_OPTIONS_VISIBLE - 1) {
-		soundEditor.menuCurrentScroll = OLED_MENU_NUM_OPTIONS_VISIBLE - 1;
-	}
-#endif
 
 	updateDisplay();
 }
 
 MenuItem* Submenu::selectButtonPress() {
-	return *soundEditor.currentSubmenuItem;
+	return *current_item_;
 }
 
 void Submenu::unlearnAction() {
 	if (soundEditor.getCurrentMenuItem() == this) {
-		(*soundEditor.currentSubmenuItem)->unlearnAction();
+		(*current_item_)->unlearnAction();
 	}
 }
 
 bool Submenu::allowsLearnMode() {
 	if (soundEditor.getCurrentMenuItem() == this) {
-		return (*soundEditor.currentSubmenuItem)->allowsLearnMode();
+		return (*current_item_)->allowsLearnMode();
 	}
 	return false;
 }
 
-void Submenu::learnKnob(MIDIDevice* fromDevice, int whichKnob, int modKnobMode, int midiChannel) {
+void Submenu::learnKnob(MIDIDevice* fromDevice, int32_t whichKnob, int32_t modKnobMode, int32_t midiChannel) {
 	if (soundEditor.getCurrentMenuItem() == this) {
-		(*soundEditor.currentSubmenuItem)->learnKnob(fromDevice, whichKnob, modKnobMode, midiChannel);
+		(*current_item_)->learnKnob(fromDevice, whichKnob, modKnobMode, midiChannel);
 	}
 }
 
-bool Submenu::learnNoteOn(MIDIDevice* fromDevice, int channel, int noteCode) {
+bool Submenu::learnNoteOn(MIDIDevice* fromDevice, int32_t channel, int32_t noteCode) {
 	if (soundEditor.getCurrentMenuItem() == this) {
-		return (*soundEditor.currentSubmenuItem)->learnNoteOn(fromDevice, channel, noteCode);
+		return (*current_item_)->learnNoteOn(fromDevice, channel, noteCode);
 	}
 	return false;
 }
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

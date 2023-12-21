@@ -15,22 +15,22 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "processing/engines/audio_engine.h"
-#include "storage/audio/audio_file_manager.h"
 #include "model/sample/sample_playback_guide.h"
+#include "memory/general_memory_allocator.h"
 #include "model/sample/sample.h"
 #include "model/sample/sample_holder.h"
-#include "playback/playback_handler.h"
 #include "model/voice/voice_sample.h"
-#include "memory/general_memory_allocator.h"
+#include "playback/playback_handler.h"
+#include "processing/engines/audio_engine.h"
+#include "storage/audio/audio_file_manager.h"
 
 SamplePlaybackGuide::SamplePlaybackGuide() {
 	// TODO Auto-generated constructor stub
 }
 
-int SamplePlaybackGuide::getFinalClusterIndex(Sample* sample, bool obeyMarkers, int32_t* getEndPlaybackAtByte) {
+int32_t SamplePlaybackGuide::getFinalClusterIndex(Sample* sample, bool obeyMarkers, int32_t* getEndPlaybackAtByte) {
 
-	generalMemoryAllocator.checkStack("SamplePlaybackGuide::getFinalClusterIndex");
+	GeneralMemoryAllocator::get().checkStack("SamplePlaybackGuide::getFinalClusterIndex");
 
 	int32_t endPlaybackAtByteNow;
 	// If cache, go right to the end of the waveform
@@ -48,7 +48,7 @@ int SamplePlaybackGuide::getFinalClusterIndex(Sample* sample, bool obeyMarkers, 
 		*getEndPlaybackAtByte = endPlaybackAtByteNow;
 	}
 
-	int finalBytePos;
+	int32_t finalBytePos;
 
 	if (playDirection == 1) {
 		finalBytePos = endPlaybackAtByteNow - 1;
@@ -63,11 +63,11 @@ int SamplePlaybackGuide::getFinalClusterIndex(Sample* sample, bool obeyMarkers, 
 void SamplePlaybackGuide::setupPlaybackBounds(bool reversed) {
 	playDirection = reversed ? -1 : 1;
 
-	int startPlaybackAtSample;
-	int endPlaybackAtSample;
+	int32_t startPlaybackAtSample;
+	int32_t endPlaybackAtSample;
 
 	Sample* sample = (Sample*)audioFileHolder->audioFile;
-	int bytesPerSample = sample->numChannels * sample->byteDepth;
+	int32_t bytesPerSample = sample->numChannels * sample->byteDepth;
 
 	// Forwards
 	if (!reversed) {
@@ -102,10 +102,10 @@ uint64_t SamplePlaybackGuide::getSyncedNumSamplesIn() {
 	}
 	// If following external clock, that could happen
 	// TODO: is that still necessary?
-	return (uint64_t)(lengthInSamples * currentTickWithinSample
-	                  + (uint64_t)timeSinceLastInternalTick * lengthInSamples / timePerInternalTick
-	                  + (sequenceSyncLengthTicks >> 1)) // Rounding
-	       / sequenceSyncLengthTicks;
+	return (uint64_t)(((double)(lengthInSamples * currentTickWithinSample)
+	                   + (double)timeSinceLastInternalTick * (double)lengthInSamples / (double)timePerInternalTick
+	                   + (double)(sequenceSyncLengthTicks >> 1)) // Rounding
+	                  / (double)sequenceSyncLengthTicks);
 }
 
 int32_t SamplePlaybackGuide::getNumSamplesLaggingBehindSync(VoiceSample* voiceSample) {

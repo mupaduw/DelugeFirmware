@@ -15,21 +15,28 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
-#include "processing/sound/sound.h"
 #include "gui/ui/sound_editor.h"
+#include "processing/sound/sound.h"
 
-namespace menu_item::modulator {
+namespace deluge::gui::menu_item::modulator {
 class Destination final : public Selection {
 public:
-	Destination(char const* newName = NULL) : Selection(newName) {}
-	void readCurrentValue() { soundEditor.currentValue = soundEditor.currentSound->modulator1ToModulator0; }
-	void writeCurrentValue() { soundEditor.currentSound->modulator1ToModulator0 = soundEditor.currentValue; }
-	char const** getOptions() {
-		static char const* options[] = {"Carriers", HAVE_OLED ? "Modulator 1" : "MOD1", NULL};
-		return options;
+	using Selection::Selection;
+	void readCurrentValue() override { this->setValue(soundEditor.currentSound->modulator1ToModulator0); }
+	void writeCurrentValue() override { soundEditor.currentSound->modulator1ToModulator0 = this->getValue(); }
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		static auto mod1 = l10n::getView(STRING_FOR_MODULATOR_1);
+		return {
+		    l10n::getView(STRING_FOR_CARRIERS),
+		    mod1,
+		};
 	}
-	bool isRelevant(Sound* sound, int whichThing) { return (whichThing == 1 && sound->synthMode == SYNTH_MODE_FM); }
+	bool isRelevant(Sound* sound, int32_t whichThing) override {
+		return (whichThing == 1 && sound->synthMode == SynthMode::FM);
+	}
 };
 
-} // namespace menu_item::modulator
+} // namespace deluge::gui::menu_item::modulator

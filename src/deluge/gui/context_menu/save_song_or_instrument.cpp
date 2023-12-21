@@ -16,21 +16,28 @@
  */
 
 #include "gui/context_menu/save_song_or_instrument.h"
-#include "hid/display/numeric_driver.h"
-#include "gui/ui/save/save_song_ui.h"
+#include "definitions_cxx.hpp"
 #include "gui/context_menu/delete_file.h"
+#include "gui/l10n/l10n.h"
+#include "gui/ui/save/save_song_ui.h"
+#include "hid/display/display.h"
 #include "storage/file_item.h"
 
 namespace deluge::gui::context_menu {
 SaveSongOrInstrument saveSongOrInstrument{};
 
 char const* SaveSongOrInstrument::getTitle() {
-	static char const* title = "Options";
-	return title;
+	using enum l10n::String;
+	return l10n::get(STRING_FOR_OPTIONS);
 }
 
 Sized<char const**> SaveSongOrInstrument::getOptions() {
-	static char const* options[] = {"Collect media", "Create folder", "Delete"};
+	using enum l10n::String;
+	static char const* options[] = {
+	    l10n::get(STRING_FOR_COLLECT_MEDIA), //<
+	    l10n::get(STRING_FOR_CREATE_FOLDER), //<
+	    l10n::get(STRING_FOR_DELETE)         //<
+	};
 	return {options, 3};
 }
 
@@ -42,10 +49,10 @@ bool SaveSongOrInstrument::acceptCurrentOption() {
 
 	case 1: { // Create folder
 		Browser* browser = (Browser*)getUIUpOneLevel();
-		int error = browser->createFolder();
+		int32_t error = browser->createFolder();
 
 		if (error) {
-			numericDriver.displayError(error);
+			display->displayError(error);
 			return false;
 		}
 		close();
@@ -55,7 +62,7 @@ bool SaveSongOrInstrument::acceptCurrentOption() {
 		bool available = context_menu::deleteFile.setupAndCheckAvailability();
 
 		if (available) { // It always will be - but we gotta check.
-			numericDriver.setNextTransitionDirection(1);
+			display->setNextTransitionDirection(1);
 			openUI(&context_menu::deleteFile); // Might fail
 		}
 		return available;
@@ -86,7 +93,7 @@ bool SaveSongOrInstrument::isCurrentOptionAvailable() {
 	}
 }
 
-int SaveSongOrInstrument::padAction(int x, int y, int on) {
+ActionResult SaveSongOrInstrument::padAction(int32_t x, int32_t y, int32_t on) {
 	return getUIUpOneLevel()->padAction(x, y, on);
 }
 } // namespace deluge::gui::context_menu

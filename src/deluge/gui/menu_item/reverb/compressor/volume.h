@@ -17,31 +17,30 @@
 #pragma once
 #include "gui/menu_item/integer.h"
 #include "gui/ui/sound_editor.h"
-#include "processing/sound/sound.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/sound/sound.h"
 
-namespace menu_item::reverb::compressor {
+namespace deluge::gui::menu_item::reverb::compressor {
 
 class Volume final : public Integer {
 public:
 	using Integer::Integer;
-	void readCurrentValue() { soundEditor.currentValue = AudioEngine::reverbCompressorVolume / 21474836; }
-	void writeCurrentValue() {
-		AudioEngine::reverbCompressorVolume = soundEditor.currentValue * 21474836;
+	void readCurrentValue() override { this->setValue(AudioEngine::reverbCompressorVolume / 21474836); }
+	void writeCurrentValue() override {
+		AudioEngine::reverbCompressorVolume = this->getValue() * 21474836;
 		AudioEngine::mustUpdateReverbParamsBeforeNextRender = true;
 	}
-	int getMaxValue() const { return 50; }
-	int getMinValue() const { return -1; }
-#if !HAVE_OLED
-	void drawValue() {
-		if (soundEditor.currentValue < 0) {
-			numericDriver.setText("AUTO");
+	[[nodiscard]] int32_t getMaxValue() const override { return kMaxMenuValue; }
+	[[nodiscard]] int32_t getMinValue() const override { return -1; }
+
+	void drawValue() override {
+		if (this->getValue() < 0) {
+			display->setText(l10n::get(l10n::String::STRING_FOR_AUTO));
 		}
 		else {
 			Integer::drawValue();
 		}
 	}
-#endif
 };
 
-} // namespace menu_item::reverb::compressor
+} // namespace deluge::gui::menu_item::reverb::compressor

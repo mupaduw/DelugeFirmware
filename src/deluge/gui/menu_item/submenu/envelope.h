@@ -15,19 +15,19 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "gui/menu_item/submenu.h"
+#include "gui/menu_item/submenu_referring_to_one_thing.h"
 
-extern void setEnvelopeNumberForTitles(int);
+extern void setEnvelopeNumberForTitles(int32_t);
 
-namespace menu_item::submenu {
+namespace deluge::gui::menu_item::submenu {
 class Envelope final : public SubmenuReferringToOneThing {
 public:
 	using SubmenuReferringToOneThing::SubmenuReferringToOneThing;
-#if HAVE_OLED
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL) {
+
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) {
 		SubmenuReferringToOneThing::beginSession(navigatedBackwardFrom);
-		setEnvelopeNumberForTitles(thingIndex);
+		setEnvelopeNumberForTitles(this->thingIndex);
 	}
-#endif
 };
-} // namespace menu_item::submenu
+
+} // namespace deluge::gui::menu_item::submenu

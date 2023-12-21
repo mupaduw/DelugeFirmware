@@ -17,25 +17,20 @@
 
 #pragma once
 
-#include "value.h"
+#include "gui/menu_item/enumeration.h"
+#include <span>
+#include <string_view>
 
-namespace menu_item {
-
-class Selection : public Value {
+namespace deluge::gui::menu_item {
+class Selection : public Enumeration {
 public:
-	Selection(char const* newName = NULL);
-	void beginSession(MenuItem* navigatedBackwardFrom);
-	void selectEncoderAction(int offset);
+	using Enumeration::Enumeration;
 
-	char const** basicOptions;
+	virtual std::vector<std::string_view> getOptions() = 0;
 
-protected:
-	virtual char const** getOptions();
-	virtual int getNumOptions();
-	virtual void drawValue();
+	void drawValue() override;
 
-#if HAVE_OLED
-	void drawPixelsForOled();
-#endif
+	void drawPixelsForOled() override;
+	size_t size() override { return this->getOptions().size(); }
 };
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

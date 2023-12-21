@@ -17,13 +17,14 @@
 #pragma once
 #include "gui/menu_item/source_selection.h"
 
-namespace menu_item::source_selection {
+namespace deluge::gui::menu_item::source_selection {
 class Range final : public SourceSelection {
 public:
-	Range();
-	ParamDescriptor getDestinationDescriptor();
-	MenuItem* selectButtonPress();
-	MenuItem* patchingSourceShortcutPress(int newS, bool previousPressStillActive);
+	using SourceSelection::SourceSelection;
+	ParamDescriptor getDestinationDescriptor() override;
+	MenuItem* selectButtonPress() override;
+	MenuItem* patchingSourceShortcutPress(PatchSource newS, bool previousPressStillActive) override;
+	std::string_view getTitle() const override { return l10n::getView(l10n::String::STRING_FOR_MODULATE_DEPTH); };
 };
 extern Range rangeMenu;
-} // namespace menu_item::source_selection
+} // namespace deluge::gui::menu_item::source_selection

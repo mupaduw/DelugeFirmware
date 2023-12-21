@@ -15,14 +15,14 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "model/sample/sample_cluster.h"
+#include "hid/display/display.h"
+#include "io/debug/print.h"
+#include "memory/general_memory_allocator.h"
+#include "model/sample/sample.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/cluster/cluster.h"
-#include "model/sample/sample_cluster.h"
-#include "io/debug/print.h"
 #include "util/functions.h"
-#include "model/sample/sample.h"
-#include "hid/display/numeric_driver.h"
-#include "memory/general_memory_allocator.h"
 
 SampleCluster::SampleCluster() {
 	cluster = NULL;
@@ -37,7 +37,7 @@ SampleCluster::~SampleCluster() {
 	if (cluster) {
 
 #if ALPHA_OR_BETA_VERSION
-		int numReasonsToBeLoaded = cluster->numReasonsToBeLoaded;
+		int32_t numReasonsToBeLoaded = cluster->numReasonsToBeLoaded;
 		if (cluster == audioFileManager.clusterBeingLoaded) {
 			numReasonsToBeLoaded--;
 		}
@@ -46,8 +46,8 @@ SampleCluster::~SampleCluster() {
 			Debug::print("uh oh, some reasons left... ");
 			Debug::println(numReasonsToBeLoaded);
 
-			numericDriver.freezeWithError(
-			    "E036"); // Bay_Mud got this, and thinks a FlashAir card might have been a catalyst. It still "shouldn't" be able to happen though.
+			// Bay_Mud got this, and thinks a FlashAir card might have been a catalyst. It still "shouldn't" be able to happen though.
+			FREEZE_WITH_ERROR("E036");
 		}
 #endif
 		audioFileManager.deallocateCluster(cluster);
@@ -62,10 +62,10 @@ void SampleCluster::ensureNoReason(Sample* sample) {
 			Debug::println(sample->filePath.get());
 
 			if (cluster->numReasonsToBeLoaded >= 0) {
-				numericDriver.freezeWithError("E068");
+				FREEZE_WITH_ERROR("E068");
 			}
 			else {
-				numericDriver.freezeWithError("E069");
+				FREEZE_WITH_ERROR("E069");
 			}
 			delayMS(50);
 		}
@@ -74,8 +74,8 @@ void SampleCluster::ensureNoReason(Sample* sample) {
 
 // Calling this will add a reason to the loaded Cluster!
 // priorityRating is only relevant if enqueuing.
-Cluster* SampleCluster::getCluster(Sample* sample, uint32_t clusterIndex, int loadInstruction, uint32_t priorityRating,
-                                   uint8_t* error) {
+Cluster* SampleCluster::getCluster(Sample* sample, uint32_t clusterIndex, int32_t loadInstruction,
+                                   uint32_t priorityRating, uint8_t* error) {
 
 	if (error) {
 		*error = NO_ERROR;
@@ -105,11 +105,11 @@ Cluster* SampleCluster::getCluster(Sample* sample, uint32_t clusterIndex, int lo
 		}
 
 #if 1 || ALPHA_OR_BETA_VERSION // Switching permanently on for now, as users on on V4.0.x have been getting E341.
-		if (cluster->numReasonsToBeLoaded < 1) {
-			numericDriver.freezeWithError("i005"); // Diversifying Qui's E341. It should actually be exactly 1
+		if (cluster->numReasonsToBeLoaded != 1) {
+			FREEZE_WITH_ERROR("i005"); // Diversifying Qui's E341. It should actually be exactly 1
 		}
-		if (cluster->type != CLUSTER_SAMPLE) {
-			numericDriver.freezeWithError("E256"); // Cos I got E236
+		if (cluster->type != ClusterType::Sample) {
+			FREEZE_WITH_ERROR("E256"); // Cos I got E236
 		}
 #endif
 
@@ -125,15 +125,15 @@ Cluster* SampleCluster::getCluster(Sample* sample, uint32_t clusterIndex, int lo
 		if (loadInstruction == CLUSTER_ENQUEUE) {
 justEnqueue:
 
-			if (ALPHA_OR_BETA_VERSION && cluster->type != CLUSTER_SAMPLE) {
-				numericDriver.freezeWithError("E236"); // Cos Chris F got an E205
+			if (ALPHA_OR_BETA_VERSION && cluster->type != ClusterType::Sample) {
+				FREEZE_WITH_ERROR("E236"); // Cos Chris F got an E205
 			}
 
 			audioFileManager.enqueueCluster(
 			    cluster, priorityRating); // TODO: If that fails, it'll just get awkwardly forgotten about
 #if 1 || ALPHA_OR_BETA_VERSION // Switching permanently on for now, as users on on V4.0.x have been getting E341.
 			if (cluster && cluster->numReasonsToBeLoaded <= 0) {
-				numericDriver.freezeWithError("i027"); // Diversifying Ron R's i004, which was diversifying Qui's E341
+				FREEZE_WITH_ERROR("i027"); // Diversifying Ron R's i004, which was diversifying Qui's E341
 			}
 #endif
 		}
@@ -143,8 +143,8 @@ justEnqueue:
 
 			// cluster has (at least?) one reason - added above
 
-			if (ALPHA_OR_BETA_VERSION && cluster->type != CLUSTER_SAMPLE) {
-				numericDriver.freezeWithError("E234"); // Cos Chris F got an E205
+			if (ALPHA_OR_BETA_VERSION && cluster->type != ClusterType::Sample) {
+				FREEZE_WITH_ERROR("E234"); // Cos Chris F got an E205
 			}
 			bool result = audioFileManager.loadCluster(cluster, 1);
 
@@ -168,7 +168,7 @@ justEnqueue:
 			}
 #if 1 || ALPHA_OR_BETA_VERSION // Switching permanently on for now, as users on on V4.0.x have been getting E341.
 			if (cluster && cluster->numReasonsToBeLoaded <= 0) {
-				numericDriver.freezeWithError("i026"); // Michael B got - insane.
+				FREEZE_WITH_ERROR("i026"); // Michael B got - insane.
 			}
 #endif
 		}
@@ -179,7 +179,7 @@ justEnqueue:
 
 #if 1 || ALPHA_OR_BETA_VERSION // Switching permanently on for now, as users on V4.1.3 have been getting E341.
 		if (cluster && cluster->numReasonsToBeLoaded < 0) {
-			numericDriver.freezeWithError("i028"); // bnhrsch got this!!
+			FREEZE_WITH_ERROR("i028"); // bnhrsch got this!!
 		}
 #endif
 
@@ -203,14 +203,14 @@ justEnqueue:
 
 #if 1 || ALPHA_OR_BETA_VERSION // Switching permanently on for now, as users on V4.0.x have been getting E341.
 		if (cluster && cluster->numReasonsToBeLoaded <= 0) {
-			numericDriver.freezeWithError("i025"); // Diversifying Ron R's i004, which was diversifying Qui's E341
+			FREEZE_WITH_ERROR("i025"); // Diversifying Ron R's i004, which was diversifying Qui's E341
 		}
 #endif
 	}
 
 #if 1 || ALPHA_OR_BETA_VERSION // Switching permanently on for now, as users on V4.0.x have been getting E341.
 	if (cluster && cluster->numReasonsToBeLoaded <= 0) {
-		numericDriver.freezeWithError("i004"); // Ron R got this! Diversifying Qui's E341
+		FREEZE_WITH_ERROR("i004"); // Ron R got this! Diversifying Qui's E341
 	}
 #endif
 

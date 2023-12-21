@@ -15,18 +15,19 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "storage/flash_storage.h"
-#include "util/lookuptables/lookuptables.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
+#include "storage/flash_storage.h"
+#include "util/lookuptables/lookuptables.h"
 
-namespace menu_item::defaults {
+namespace deluge::gui::menu_item::defaults {
 class Scale final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() { soundEditor.currentValue = FlashStorage::defaultScale; }
-	void writeCurrentValue() { FlashStorage::defaultScale = soundEditor.currentValue; }
-	int getNumOptions() { return NUM_PRESET_SCALES + 2; }
-	char const** getOptions() { return presetScaleNames; }
+	void readCurrentValue() override { this->setValue(FlashStorage::defaultScale); }
+	void writeCurrentValue() override { FlashStorage::defaultScale = this->getValue(); }
+	std::vector<std::string_view> getOptions() override {
+		return {presetScaleNames.begin(), presetScaleNames.begin() + NUM_PRESET_SCALES + 2};
+	}
 };
-} // namespace menu_item::defaults
+} // namespace deluge::gui::menu_item::defaults

@@ -16,71 +16,73 @@
 */
 
 #include "model/consequence/consequence_clip_existence.h"
-#include "model/clip/instrument_clip.h"
-#include "definitions.h"
-#include "model/song/song.h"
-#include "hid/display/numeric_driver.h"
-#include "memory/general_memory_allocator.h"
-#include "model/instrument/instrument.h"
-#include "model/clip/clip_array.h"
-#include "playback/playback_handler.h"
-#include "playback/mode/session.h"
-#include "playback/mode/arrangement.h"
-#include "model/output.h"
+#include "definitions_cxx.hpp"
+#include "hid/display/display.h"
 #include "io/debug/print.h"
+#include "memory/general_memory_allocator.h"
 #include "model/clip/audio_clip.h"
+#include "model/clip/clip_array.h"
+#include "model/clip/instrument_clip.h"
+#include "model/instrument/instrument.h"
 #include "model/model_stack.h"
+#include "model/output.h"
+#include "model/song/song.h"
+#include "playback/mode/arrangement.h"
+#include "playback/mode/session.h"
+#include "playback/playback_handler.h"
+#include "util/misc.h"
 
-ConsequenceClipExistence::ConsequenceClipExistence(Clip* newClip, ClipArray* newClipArray, int newType) {
+ConsequenceClipExistence::ConsequenceClipExistence(Clip* newClip, ClipArray* newClipArray,
+                                                   ExistenceChangeType newType) {
 	clip = newClip;
 	clipArray = newClipArray;
 	type = newType;
 }
 
-void ConsequenceClipExistence::prepareForDestruction(int whichQueueActionIn, Song* song) {
-	if (whichQueueActionIn != type) {
+void ConsequenceClipExistence::prepareForDestruction(int32_t whichQueueActionIn, Song* song) {
+	if (whichQueueActionIn != util::to_underlying(type)) {
 		song->deleteBackedUpParamManagersForClip(clip);
 
 #if ALPHA_OR_BETA_VERSION
 		if (clip->type == CLIP_TYPE_AUDIO) {
 			if (((AudioClip*)clip)->recorder) {
-				numericDriver.freezeWithError("i002"); // Trying to diversify Qui's E278
+				FREEZE_WITH_ERROR("i002"); // Trying to diversify Qui's E278
 			}
 		}
 #endif
 
 		clip->~Clip();
-		generalMemoryAllocator.dealloc(clip);
+		delugeDealloc(clip);
 	}
 }
 
-int ConsequenceClipExistence::revert(int time, ModelStack* modelStack) {
+int32_t ConsequenceClipExistence::revert(TimeType time, ModelStack* modelStack) {
 	ModelStackWithTimelineCounter* modelStackWithTimelineCounter = modelStack->addTimelineCounter(clip);
 
-	if (time != type) { // (Re-)create
+	if (time != util::to_underlying(type)) { // (Re-)create
 
 		if (!clipArray->ensureEnoughSpaceAllocated(1)) {
 			return ERROR_INSUFFICIENT_RAM;
 		}
 
-		int error = clip->undoDetachmentFromOutput(modelStackWithTimelineCounter);
+		int32_t error = clip->undoDetachmentFromOutput(modelStackWithTimelineCounter);
 		if (error) { // This shouldn't actually happen, but if it does...
 #if ALPHA_OR_BETA_VERSION
-			numericDriver.freezeWithError("E046");
+			FREEZE_WITH_ERROR("E046");
 #endif
 			return error; // Run away. This and the Clip(?) will get destructed, and everything should be ok!
 		}
 
 #if ALPHA_OR_BETA_VERSION
 		if (clip->type == CLIP_TYPE_AUDIO && !clip->paramManager.summaries[0].paramCollection) {
-			numericDriver.freezeWithError("E419"); // Trying to diversify Leo's E410
+			FREEZE_WITH_ERROR("E419"); // Trying to diversify Leo's E410
 		}
 #endif
 
 		clipArray->insertClipAtIndex(clip, clipIndex);
 
 		clip->activeIfNoSolo = false;   // So we can toggle it back on, below
-		clip->armState = ARM_STATE_OFF; // In case was left on before
+		clip->armState = ArmState::OFF; // In case was left on before
 
 		if (shouldBeActiveWhileExistent && !(playbackHandler.playbackState && currentPlaybackMode == &arrangement)) {
 			session.toggleClipStatus(clip, &clipIndex, true, 0);
@@ -110,11 +112,11 @@ int ConsequenceClipExistence::revert(int time, ModelStack* modelStack) {
 		    clip); // But should we really be calling this without checking the Clip is a session one?
 
 		clip->abortRecording();
-		clip->armState = ARM_STATE_OFF; // Not 100% sure if necessary... probably.
+		clip->armState = ArmState::OFF; // Not 100% sure if necessary... probably.
 
 		clipIndex = clipArray->getIndexForClip(clip);
 		if (clipIndex == -1) {
-			numericDriver.freezeWithError("E244");
+			FREEZE_WITH_ERROR("E244");
 		}
 
 		if (clipArray == &modelStackWithTimelineCounter->song->sessionClips) {
@@ -141,14 +143,14 @@ int ConsequenceClipExistence::revert(int time, ModelStack* modelStack) {
 #if ALPHA_OR_BETA_VERSION
 		if (clip->type == CLIP_TYPE_AUDIO) {
 			if (((AudioClip*)clip)->recorder) {
-				numericDriver.freezeWithError("i003"); // Trying to diversify Qui's E278
+				FREEZE_WITH_ERROR("i003"); // Trying to diversify Qui's E278
 			}
 		}
 #endif
 
 #if ALPHA_OR_BETA_VERSION
 		if (clip->type == CLIP_TYPE_AUDIO && !clip->paramManager.summaries[0].paramCollection) {
-			numericDriver.freezeWithError("E420"); // Trying to diversify Leo's E410
+			FREEZE_WITH_ERROR("E420"); // Trying to diversify Leo's E410
 		}
 #endif
 

@@ -15,20 +15,22 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "storage/flash_storage.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
+#include "storage/flash_storage.h"
 
-namespace menu_item::sample::browser_preview {
+namespace deluge::gui::menu_item::sample::browser_preview {
 class Mode final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() { soundEditor.currentValue = FlashStorage::sampleBrowserPreviewMode; }
-	void writeCurrentValue() { FlashStorage::sampleBrowserPreviewMode = soundEditor.currentValue; }
-	char const** getOptions() {
-		static char const* options[] = {"Off", "Conditional", "On", NULL};
-		return options;
+	void readCurrentValue() override { this->setValue(FlashStorage::sampleBrowserPreviewMode); }
+	void writeCurrentValue() override { FlashStorage::sampleBrowserPreviewMode = this->getValue(); }
+	std::vector<std::string_view> getOptions() override {
+		return {
+		    l10n::getView(l10n::String::STRING_FOR_DISABLED),
+		    l10n::getView(l10n::String::STRING_FOR_CONDITIONAL),
+		    l10n::getView(l10n::String::STRING_FOR_ENABLED),
+		};
 	}
-	int getNumOptions() { return 3; }
 };
-} // namespace menu_item::sample::browser_preview
+} // namespace deluge::gui::menu_item::sample::browser_preview

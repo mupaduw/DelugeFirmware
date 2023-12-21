@@ -67,7 +67,7 @@ Additional information:
           WrOff == (RdOff - 1): Buffer is full
           WrOff >  RdOff:       Free space includes wrap-around
           WrOff <  RdOff:       Used space includes wrap-around
-          (WrOff == (SizeOfBuffer - 1)) && (RdOff == 0):  
+          (WrOff == (SizeOfBuffer - 1)) && (RdOff == 0):
                                 Buffer full and wrap-around after next byte
 
 
@@ -76,8 +76,8 @@ Additional information:
 
 #include "SEGGER_RTT.h"
 
-#include <string.h> // for memcpy
-#include "RZA1/cpu_specific.h"
+#include <string.h>                       // for memcpy
+#define UNCACHED_MIRROR_OFFSET 0x40000000 // originally from: "RZA1/cpu_specific.h"
 
 /*********************************************************************
 *
@@ -248,13 +248,13 @@ static unsigned char _aTerminalId[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
 //
 // RTT Control Block and allocate buffers for channel 0
 //
-SEGGER_RTT_PUT_CB_SECTION(SEGGER_RTT_CB_ALIGN(SEGGER_RTT_CB _SEGGER_RTT_REAL));
+SEGGER_RTT_PUT_CB_SECTION(SEGGER_RTT_CB_ALIGN(SEGGER_RTT_CB _SEGGER_RTT));
 
 SEGGER_RTT_PUT_BUFFER_SECTION(SEGGER_RTT_BUFFER_ALIGN(static char _acUpBufferReal[BUFFER_SIZE_UP]));
 SEGGER_RTT_PUT_BUFFER_SECTION(SEGGER_RTT_BUFFER_ALIGN(static char _acDownBufferReal[BUFFER_SIZE_DOWN]));
 
 // Stuff ingeniously messed with by Rohan to get around cache, which would stop RTT from working
-#define _SEGGER_RTT (*(SEGGER_RTT_CB*)((char*)&_SEGGER_RTT_REAL + UNCACHED_MIRROR_OFFSET))
+#define _SEGGER_RTT_UNCACHED (*(SEGGER_RTT_CB*)((char*)&_SEGGER_RTT + UNCACHED_MIRROR_OFFSET))
 #define _acUpBuffer ((char*)_acUpBufferReal + UNCACHED_MIRROR_OFFSET)
 #define _acDownBuffer ((char*)_acDownBufferReal + UNCACHED_MIRROR_OFFSET)
 
@@ -278,7 +278,7 @@ static unsigned char _ActiveTerminal;
 */
 #define INIT()                                                                                                         \
 	do {                                                                                                               \
-		if (_SEGGER_RTT.acID[0] == '\0') {                                                                             \
+		if (_SEGGER_RTT_UNCACHED.acID[0] == '\0') {                                                                    \
 			_DoInit();                                                                                                 \
 		}                                                                                                              \
 	} while (0)
@@ -287,7 +287,7 @@ static void _DoInit(void) {
 	//
 	// Initialize control block
 	//
-	p = &_SEGGER_RTT;
+	p = &_SEGGER_RTT_UNCACHED;
 	p->MaxNumUpBuffers = SEGGER_RTT_MAX_NUM_UP_BUFFERS;
 	p->MaxNumDownBuffers = SEGGER_RTT_MAX_NUM_DOWN_BUFFERS;
 	//
@@ -314,7 +314,7 @@ static void _DoInit(void) {
 	// in initializer memory (usually flash) by J-Link
 	//
 	// GCC gets deeply confused by the UNCACHED_MIRROR_OFFSET trickery
-	// happening inside _SEGGER_RTT. It's not easy to explain what we're doing
+	// happening inside _SEGGER_RTT_UNCACHED. It's not easy to explain what we're doing
 	// here either, so simply silence the warning for now.
 #pragma GCC push
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
@@ -530,7 +530,7 @@ static unsigned _GetAvailWriteSpace(SEGGER_RTT_BUFFER_UP* pRing) {
 *    Reads characters from SEGGER real-time-terminal control block
 *    which have been previously stored by the application.
 *    Do not lock against interrupts and multiple access.
-*    Used to do the same operation that J-Link does, to transfer 
+*    Used to do the same operation that J-Link does, to transfer
 *    RTT data via other channels, such as TCP/IP or UART.
 *
 *  Parameters
@@ -556,7 +556,7 @@ unsigned SEGGER_RTT_ReadUpBufferNoLock(unsigned BufferIndex, void* pData, unsign
 #endif
 	//
 	INIT();
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	pBuffer = (unsigned char*)pData;
 	RdOff = pRing->RdOff;
 	WrOff = pRing->WrOff;
@@ -650,7 +650,7 @@ unsigned SEGGER_RTT_ReadNoLock(unsigned BufferIndex, void* pData, unsigned Buffe
 #endif
 	//
 	INIT();
-	pRing = &_SEGGER_RTT.aDown[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aDown[BufferIndex];
 	pBuffer = (unsigned char*)pData;
 	RdOff = pRing->RdOff;
 	WrOff = pRing->WrOff;
@@ -719,7 +719,7 @@ unsigned SEGGER_RTT_ReadNoLock(unsigned BufferIndex, void* pData, unsigned Buffe
 *  Function description
 *    Reads characters from SEGGER real-time-terminal control block
 *    which have been previously stored by the application.
-*    Used to do the same operation that J-Link does, to transfer 
+*    Used to do the same operation that J-Link does, to transfer
 *    RTT data via other channels, such as TCP/IP or UART.
 *
 *  Parameters
@@ -734,7 +734,7 @@ unsigned SEGGER_RTT_ReadNoLock(unsigned BufferIndex, void* pData, unsigned Buffe
 *    This function must not be called when J-Link might also do RTT.
 *    This function locks against all other RTT operations. I.e. during
 *    the read operation, writing is also locked.
-*    If only one consumer reads from the up buffer, 
+*    If only one consumer reads from the up buffer,
 *    call sEGGER_RTT_ReadUpBufferNoLock() instead.
 */
 unsigned SEGGER_RTT_ReadUpBuffer(unsigned BufferIndex, void* pBuffer, unsigned BufferSize) {
@@ -792,7 +792,7 @@ unsigned SEGGER_RTT_Read(unsigned BufferIndex, void* pBuffer, unsigned BufferSiz
 *  Function description
 *    Stores a specified number of characters in SEGGER RTT
 *    control block.
-*    SEGGER_RTT_WriteWithOverwriteNoLock does not lock the application 
+*    SEGGER_RTT_WriteWithOverwriteNoLock does not lock the application
 *    and overwrites data if the data does not fit into the buffer.
 *
 *  Parameters
@@ -805,7 +805,7 @@ unsigned SEGGER_RTT_Read(unsigned BufferIndex, void* pBuffer, unsigned BufferSiz
 *    (2) For performance reasons this function does not call Init()
 *        and may only be called after RTT has been initialized.
 *        Either by calling SEGGER_RTT_Init() or calling another RTT API function first.
-*    (3) Do not use SEGGER_RTT_WriteWithOverwriteNoLock if a J-Link 
+*    (3) Do not use SEGGER_RTT_WriteWithOverwriteNoLock if a J-Link
 *        connection reads RTT data.
 */
 void SEGGER_RTT_WriteWithOverwriteNoLock(unsigned BufferIndex, const void* pBuffer, unsigned NumBytes) {
@@ -820,7 +820,7 @@ void SEGGER_RTT_WriteWithOverwriteNoLock(unsigned BufferIndex, const void* pBuff
 	//
 	// Get "to-host" ring buffer and copy some elements into local variables.
 	//
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	//
 	// Check if we will overwrite data and need to adjust the RdOff.
 	//
@@ -929,7 +929,7 @@ unsigned SEGGER_RTT_WriteSkipNoLock(unsigned BufferIndex, const void* pBuffer, u
 	// 1) is the most common case for large buffers and assuming that J-Link reads the data fast enough
 	//
 	pData = (const char*)pBuffer;
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	RdOff = pRing->RdOff;
 	WrOff = pRing->WrOff;
 	if (RdOff <= WrOff) { // Case 1), 2) or 3)
@@ -977,7 +977,7 @@ CopyStraight:
 *    Stores a specified number of characters in SEGGER RTT
 *    control block inside a <Down> buffer.
 *    SEGGER_RTT_WriteDownBufferNoLock does not lock the application.
-*    Used to do the same operation that J-Link does, to transfer 
+*    Used to do the same operation that J-Link does, to transfer
 *    RTT data from other channels, such as TCP/IP or UART.
 *
 *  Parameters
@@ -1008,7 +1008,7 @@ unsigned SEGGER_RTT_WriteDownBufferNoLock(unsigned BufferIndex, const void* pBuf
 	// Get "to-target" ring buffer.
 	// It is save to cast that to a "to-host" buffer. Up and Down buffer differ in volatility of offsets that might be modified by J-Link.
 	//
-	pRing = (SEGGER_RTT_BUFFER_UP*)&_SEGGER_RTT.aDown[BufferIndex];
+	pRing = (SEGGER_RTT_BUFFER_UP*)&_SEGGER_RTT_UNCACHED.aDown[BufferIndex];
 	//
 	// How we output depends upon the mode...
 	//
@@ -1084,7 +1084,7 @@ unsigned SEGGER_RTT_WriteNoLock(unsigned BufferIndex, const void* pBuffer, unsig
 	//
 	// Get "to-host" ring buffer.
 	//
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	//
 	// How we output depends upon the mode...
 	//
@@ -1149,7 +1149,7 @@ unsigned SEGGER_RTT_WriteNoLock(unsigned BufferIndex, const void* pBuffer, unsig
 *    This function must not be called when J-Link might also do RTT.
 *    This function locks against all other RTT operations. I.e. during
 *    the write operation, writing from the application is also locked.
-*    If only one consumer writes to the down buffer, 
+*    If only one consumer writes to the down buffer,
 *    call SEGGER_RTT_WriteDownBufferNoLock() instead.
 */
 unsigned SEGGER_RTT_WriteDownBuffer(unsigned BufferIndex, const void* pBuffer, unsigned NumBytes) {
@@ -1262,7 +1262,7 @@ unsigned SEGGER_RTT_PutCharSkipNoLock(unsigned BufferIndex, char c) {
 	//
 	// Get "to-host" ring buffer.
 	//
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	//
 	// Get write position and handle wrap-around if necessary
 	//
@@ -1315,7 +1315,7 @@ unsigned SEGGER_RTT_PutCharSkip(unsigned BufferIndex, char c) {
 	//
 	// Get "to-host" ring buffer.
 	//
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	//
 	// Get write position and handle wrap-around if necessary
 	//
@@ -1372,7 +1372,7 @@ unsigned SEGGER_RTT_PutChar(unsigned BufferIndex, char c) {
 	//
 	// Get "to-host" ring buffer.
 	//
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	//
 	// Get write position and handle wrap-around if necessary
 	//
@@ -1479,8 +1479,8 @@ int SEGGER_RTT_HasKey(void) {
 	int r;
 
 	INIT();
-	RdOff = _SEGGER_RTT.aDown[0].RdOff;
-	if (RdOff != _SEGGER_RTT.aDown[0].WrOff) {
+	RdOff = _SEGGER_RTT_UNCACHED.aDown[0].RdOff;
+	if (RdOff != _SEGGER_RTT_UNCACHED.aDown[0].WrOff) {
 		r = 1;
 	}
 	else {
@@ -1505,7 +1505,7 @@ unsigned SEGGER_RTT_HasData(unsigned BufferIndex) {
 	SEGGER_RTT_BUFFER_DOWN* pRing;
 	unsigned v;
 
-	pRing = &_SEGGER_RTT.aDown[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aDown[BufferIndex];
 	v = pRing->WrOff;
 	return v - pRing->RdOff;
 }
@@ -1526,7 +1526,7 @@ unsigned SEGGER_RTT_HasDataUp(unsigned BufferIndex) {
 	SEGGER_RTT_BUFFER_UP* pRing;
 	unsigned v;
 
-	pRing = &_SEGGER_RTT.aUp[BufferIndex];
+	pRing = &_SEGGER_RTT_UNCACHED.aUp[BufferIndex];
 	v = pRing->RdOff;
 	return pRing->WrOff - v;
 }
@@ -1557,18 +1557,18 @@ int SEGGER_RTT_AllocDownBuffer(const char* sName, void* pBuffer, unsigned Buffer
 	SEGGER_RTT_LOCK();
 	BufferIndex = 0;
 	do {
-		if (_SEGGER_RTT.aDown[BufferIndex].pBuffer == NULL) {
+		if (_SEGGER_RTT_UNCACHED.aDown[BufferIndex].pBuffer == NULL) {
 			break;
 		}
 		BufferIndex++;
-	} while (BufferIndex < _SEGGER_RTT.MaxNumDownBuffers);
-	if (BufferIndex < _SEGGER_RTT.MaxNumDownBuffers) {
-		_SEGGER_RTT.aDown[BufferIndex].sName = sName;
-		_SEGGER_RTT.aDown[BufferIndex].pBuffer = (char*)pBuffer;
-		_SEGGER_RTT.aDown[BufferIndex].SizeOfBuffer = BufferSize;
-		_SEGGER_RTT.aDown[BufferIndex].RdOff = 0u;
-		_SEGGER_RTT.aDown[BufferIndex].WrOff = 0u;
-		_SEGGER_RTT.aDown[BufferIndex].Flags = Flags;
+	} while (BufferIndex < _SEGGER_RTT_UNCACHED.MaxNumDownBuffers);
+	if (BufferIndex < _SEGGER_RTT_UNCACHED.MaxNumDownBuffers) {
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].sName = sName;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].pBuffer = (char*)pBuffer;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].SizeOfBuffer = BufferSize;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].RdOff = 0u;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].WrOff = 0u;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].Flags = Flags;
 	}
 	else {
 		BufferIndex = -1;
@@ -1603,18 +1603,18 @@ int SEGGER_RTT_AllocUpBuffer(const char* sName, void* pBuffer, unsigned BufferSi
 	SEGGER_RTT_LOCK();
 	BufferIndex = 0;
 	do {
-		if (_SEGGER_RTT.aUp[BufferIndex].pBuffer == NULL) {
+		if (_SEGGER_RTT_UNCACHED.aUp[BufferIndex].pBuffer == NULL) {
 			break;
 		}
 		BufferIndex++;
-	} while (BufferIndex < _SEGGER_RTT.MaxNumUpBuffers);
-	if (BufferIndex < _SEGGER_RTT.MaxNumUpBuffers) {
-		_SEGGER_RTT.aUp[BufferIndex].sName = sName;
-		_SEGGER_RTT.aUp[BufferIndex].pBuffer = (char*)pBuffer;
-		_SEGGER_RTT.aUp[BufferIndex].SizeOfBuffer = BufferSize;
-		_SEGGER_RTT.aUp[BufferIndex].RdOff = 0u;
-		_SEGGER_RTT.aUp[BufferIndex].WrOff = 0u;
-		_SEGGER_RTT.aUp[BufferIndex].Flags = Flags;
+	} while (BufferIndex < _SEGGER_RTT_UNCACHED.MaxNumUpBuffers);
+	if (BufferIndex < _SEGGER_RTT_UNCACHED.MaxNumUpBuffers) {
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].sName = sName;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].pBuffer = (char*)pBuffer;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].SizeOfBuffer = BufferSize;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].RdOff = 0u;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].WrOff = 0u;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].Flags = Flags;
 	}
 	else {
 		BufferIndex = -1;
@@ -1653,16 +1653,16 @@ int SEGGER_RTT_ConfigUpBuffer(unsigned BufferIndex, const char* sName, void* pBu
 	int r;
 
 	INIT();
-	if (BufferIndex < (unsigned)_SEGGER_RTT.MaxNumUpBuffers) {
+	if (BufferIndex < (unsigned)_SEGGER_RTT_UNCACHED.MaxNumUpBuffers) {
 		SEGGER_RTT_LOCK();
 		if (BufferIndex > 0u) {
-			_SEGGER_RTT.aUp[BufferIndex].sName = sName;
-			_SEGGER_RTT.aUp[BufferIndex].pBuffer = (char*)pBuffer;
-			_SEGGER_RTT.aUp[BufferIndex].SizeOfBuffer = BufferSize;
-			_SEGGER_RTT.aUp[BufferIndex].RdOff = 0u;
-			_SEGGER_RTT.aUp[BufferIndex].WrOff = 0u;
+			_SEGGER_RTT_UNCACHED.aUp[BufferIndex].sName = sName;
+			_SEGGER_RTT_UNCACHED.aUp[BufferIndex].pBuffer = (char*)pBuffer;
+			_SEGGER_RTT_UNCACHED.aUp[BufferIndex].SizeOfBuffer = BufferSize;
+			_SEGGER_RTT_UNCACHED.aUp[BufferIndex].RdOff = 0u;
+			_SEGGER_RTT_UNCACHED.aUp[BufferIndex].WrOff = 0u;
 		}
-		_SEGGER_RTT.aUp[BufferIndex].Flags = Flags;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].Flags = Flags;
 		SEGGER_RTT_UNLOCK();
 		r = 0;
 	}
@@ -1702,16 +1702,16 @@ int SEGGER_RTT_ConfigDownBuffer(unsigned BufferIndex, const char* sName, void* p
 	int r;
 
 	INIT();
-	if (BufferIndex < (unsigned)_SEGGER_RTT.MaxNumDownBuffers) {
+	if (BufferIndex < (unsigned)_SEGGER_RTT_UNCACHED.MaxNumDownBuffers) {
 		SEGGER_RTT_LOCK();
 		if (BufferIndex > 0u) {
-			_SEGGER_RTT.aDown[BufferIndex].sName = sName;
-			_SEGGER_RTT.aDown[BufferIndex].pBuffer = (char*)pBuffer;
-			_SEGGER_RTT.aDown[BufferIndex].SizeOfBuffer = BufferSize;
-			_SEGGER_RTT.aDown[BufferIndex].RdOff = 0u;
-			_SEGGER_RTT.aDown[BufferIndex].WrOff = 0u;
+			_SEGGER_RTT_UNCACHED.aDown[BufferIndex].sName = sName;
+			_SEGGER_RTT_UNCACHED.aDown[BufferIndex].pBuffer = (char*)pBuffer;
+			_SEGGER_RTT_UNCACHED.aDown[BufferIndex].SizeOfBuffer = BufferSize;
+			_SEGGER_RTT_UNCACHED.aDown[BufferIndex].RdOff = 0u;
+			_SEGGER_RTT_UNCACHED.aDown[BufferIndex].WrOff = 0u;
 		}
-		_SEGGER_RTT.aDown[BufferIndex].Flags = Flags;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].Flags = Flags;
 		SEGGER_RTT_UNLOCK();
 		r = 0;
 	}
@@ -1741,9 +1741,9 @@ int SEGGER_RTT_SetNameUpBuffer(unsigned BufferIndex, const char* sName) {
 	int r;
 
 	INIT();
-	if (BufferIndex < (unsigned)_SEGGER_RTT.MaxNumUpBuffers) {
+	if (BufferIndex < (unsigned)_SEGGER_RTT_UNCACHED.MaxNumUpBuffers) {
 		SEGGER_RTT_LOCK();
-		_SEGGER_RTT.aUp[BufferIndex].sName = sName;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].sName = sName;
 		SEGGER_RTT_UNLOCK();
 		r = 0;
 	}
@@ -1773,9 +1773,9 @@ int SEGGER_RTT_SetNameDownBuffer(unsigned BufferIndex, const char* sName) {
 	int r;
 
 	INIT();
-	if (BufferIndex < (unsigned)_SEGGER_RTT.MaxNumDownBuffers) {
+	if (BufferIndex < (unsigned)_SEGGER_RTT_UNCACHED.MaxNumDownBuffers) {
 		SEGGER_RTT_LOCK();
-		_SEGGER_RTT.aDown[BufferIndex].sName = sName;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].sName = sName;
 		SEGGER_RTT_UNLOCK();
 		r = 0;
 	}
@@ -1805,9 +1805,9 @@ int SEGGER_RTT_SetFlagsUpBuffer(unsigned BufferIndex, unsigned Flags) {
 	int r;
 
 	INIT();
-	if (BufferIndex < (unsigned)_SEGGER_RTT.MaxNumUpBuffers) {
+	if (BufferIndex < (unsigned)_SEGGER_RTT_UNCACHED.MaxNumUpBuffers) {
 		SEGGER_RTT_LOCK();
-		_SEGGER_RTT.aUp[BufferIndex].Flags = Flags;
+		_SEGGER_RTT_UNCACHED.aUp[BufferIndex].Flags = Flags;
 		SEGGER_RTT_UNLOCK();
 		r = 0;
 	}
@@ -1837,9 +1837,9 @@ int SEGGER_RTT_SetFlagsDownBuffer(unsigned BufferIndex, unsigned Flags) {
 	int r;
 
 	INIT();
-	if (BufferIndex < (unsigned)_SEGGER_RTT.MaxNumDownBuffers) {
+	if (BufferIndex < (unsigned)_SEGGER_RTT_UNCACHED.MaxNumDownBuffers) {
 		SEGGER_RTT_LOCK();
-		_SEGGER_RTT.aDown[BufferIndex].Flags = Flags;
+		_SEGGER_RTT_UNCACHED.aDown[BufferIndex].Flags = Flags;
 		SEGGER_RTT_UNLOCK();
 		r = 0;
 	}
@@ -1888,7 +1888,8 @@ int SEGGER_RTT_SetTerminal(unsigned char TerminalId) {
 	ac[0] = 0xFFu;
 	if (TerminalId < sizeof(_aTerminalId)) { // We only support a certain number of channels
 		ac[1] = _aTerminalId[TerminalId];
-		pRing = &_SEGGER_RTT.aUp[0]; // Buffer 0 is always reserved for terminal I/O, so we can use index 0 here, fixed
+		pRing = &_SEGGER_RTT_UNCACHED
+		             .aUp[0]; // Buffer 0 is always reserved for terminal I/O, so we can use index 0 here, fixed
 		SEGGER_RTT_LOCK(); // Lock to make sure that no other task is writing into buffer, while we are and number of free bytes in buffer does not change downwards after checking and before writing
 		if ((pRing->Flags & SEGGER_RTT_MODE_MASK) == SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL) {
 			_ActiveTerminal = TerminalId;
@@ -1943,7 +1944,7 @@ int SEGGER_RTT_TerminalOut(unsigned char TerminalId, const char* s) {
 		//
 		// Get "to-host" ring buffer.
 		//
-		pRing = &_SEGGER_RTT.aUp[0];
+		pRing = &_SEGGER_RTT_UNCACHED.aUp[0];
 		//
 		// Need to be able to change terminal, write data, change back.
 		// Compute the fixed and variable sizes.
@@ -2021,7 +2022,7 @@ int SEGGER_RTT_TerminalOut(unsigned char TerminalId, const char* s) {
 *    Number of bytes that are free in the selected up buffer.
 */
 unsigned SEGGER_RTT_GetAvailWriteSpace(unsigned BufferIndex) {
-	return _GetAvailWriteSpace(&_SEGGER_RTT.aUp[BufferIndex]);
+	return _GetAvailWriteSpace(&_SEGGER_RTT_UNCACHED.aUp[BufferIndex]);
 }
 
 /*********************************************************************
@@ -2045,13 +2046,13 @@ unsigned SEGGER_RTT_GetBytesInBuffer(unsigned BufferIndex) {
 	// Avoid warnings regarding volatile access order.  It's not a problem
 	// in this case, but dampen compiler enthusiasm.
 	//
-	RdOff = _SEGGER_RTT.aUp[BufferIndex].RdOff;
-	WrOff = _SEGGER_RTT.aUp[BufferIndex].WrOff;
+	RdOff = _SEGGER_RTT_UNCACHED.aUp[BufferIndex].RdOff;
+	WrOff = _SEGGER_RTT_UNCACHED.aUp[BufferIndex].WrOff;
 	if (RdOff <= WrOff) {
 		r = WrOff - RdOff;
 	}
 	else {
-		r = _SEGGER_RTT.aUp[BufferIndex].SizeOfBuffer - (WrOff - RdOff);
+		r = _SEGGER_RTT_UNCACHED.aUp[BufferIndex].SizeOfBuffer - (WrOff - RdOff);
 	}
 	return r;
 }

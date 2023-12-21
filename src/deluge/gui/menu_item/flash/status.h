@@ -15,26 +15,30 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "storage/flash_storage.h"
-#include "hid/led/pad_leds.h"
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
+#include "hid/led/pad_leds.h"
+#include "storage/flash_storage.h"
 
-namespace menu_item::flash {
+namespace deluge::gui::menu_item::flash {
 class Status final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() { soundEditor.currentValue = PadLEDs::flashCursor; }
-	void writeCurrentValue() {
+	void readCurrentValue() override { this->setValue(PadLEDs::flashCursor); }
+	void writeCurrentValue() override {
 		if (PadLEDs::flashCursor == FLASH_CURSOR_SLOW) {
 			PadLEDs::clearTickSquares();
 		}
-		PadLEDs::flashCursor = soundEditor.currentValue;
+		PadLEDs::flashCursor = this->getValue();
 	}
-	char const** getOptions() {
-		static char const* options[] = {"Fast", "Off", "Slow", NULL};
-		return options;
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {
+		    l10n::getView(STRING_FOR_FAST),
+		    l10n::getView(STRING_FOR_DISABLED),
+		    l10n::getView(STRING_FOR_SLOW),
+		};
 	}
-	int getNumOptions() { return 3; }
 };
-} // namespace menu_item::flash
+} // namespace deluge::gui::menu_item::flash

@@ -15,28 +15,29 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "processing/engines/audio_engine.h"
-#include "model/clip/instrument_clip_minder.h"
-#include "gui/views/instrument_clip_view.h"
 #include "gui/ui_timer_manager.h"
-#include "util/functions.h"
-#include "hid/display/numeric_driver.h"
-#include "gui/ui/keyboard_screen.h"
-#include "gui/views/view.h"
+#include "definitions_cxx.hpp"
+#include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/sound_editor.h"
-#include "hid/led/pad_leds.h"
-#include "hid/led/indicator_leds.h"
-#include "model/clip/clip_minder.h"
+#include "gui/views/automation_instrument_clip_view.h"
+#include "gui/views/instrument_clip_view.h"
 #include "gui/views/session_view.h"
+#include "gui/views/view.h"
+#include "hid/display/display.h"
+#include "hid/hid_sysex.h"
+#include "hid/led/indicator_leds.h"
+#include "hid/led/pad_leds.h"
+#include "model/clip/clip_minder.h"
+#include "model/clip/instrument_clip.h"
+#include "model/clip/instrument_clip_minder.h"
+#include "model/song/song.h"
 #include "playback/playback_handler.h"
-
-#if HAVE_OLED
-#include "hid/display/oled.h"
-#endif
+#include "processing/engines/audio_engine.h"
+#include "util/functions.h"
 
 extern "C" {
-#include "RZA1/uart/sio_char.h"
 #include "RZA1/oled/oled_low_level.h"
+#include "RZA1/uart/sio_char.h"
 }
 
 UITimerManager uiTimerManager{};
@@ -46,7 +47,7 @@ extern void batteryLEDBlink();
 UITimerManager::UITimerManager() {
 	timeNextEvent = 2147483647;
 
-	for (int i = 0; i < NUM_TIMERS; i++) {
+	for (int32_t i = 0; i < NUM_TIMERS; i++) {
 		timers[i].active = false;
 	}
 }
@@ -58,7 +59,7 @@ void UITimerManager::routine() {
 		return;
 	}
 
-	for (int i = 0; i < NUM_TIMERS; i++) {
+	for (int32_t i = 0; i < NUM_TIMERS; i++) {
 		if (timers[i].active) {
 
 			int32_t timeTil = (uint32_t)(timers[i].triggerTime - AudioEngine::audioSampleTimer);
@@ -77,7 +78,7 @@ void UITimerManager::routine() {
 					break;
 
 				case TIMER_DEFAULT_ROOT_NOTE:
-					if (getCurrentUI() == &instrumentClipView) {
+					if (getCurrentUI() == &instrumentClipView || getCurrentUI() == &automationInstrumentClipView) {
 						instrumentClipView.flashDefaultRootNote();
 					}
 					else if (getCurrentUI() == &keyboardScreen) {
@@ -92,11 +93,14 @@ void UITimerManager::routine() {
 					break;
 
 				case TIMER_DISPLAY:
-#if HAVE_OLED
-					OLED::timerRoutine();
-#else
-					numericDriver.timerRoutine();
-#endif
+					if (display->haveOLED()) {
+						auto* oled = static_cast<deluge::hid::display::OLED*>(display);
+						oled->timerRoutine();
+					}
+					else {
+						display->timerRoutine();
+					}
+
 					break;
 
 				case TIMER_LED_BLINK:
@@ -117,15 +121,23 @@ void UITimerManager::routine() {
 					break;
 
 				case TIMER_UI_SPECIFIC: {
-					int result = getCurrentUI()->timerCallback();
-					if (result == ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE) {
+					ActionResult result = getCurrentUI()->timerCallback();
+					if (result == ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE) {
 						timers[i].active = true; // Come back soon and try again.
 					}
 					break;
 				}
 
 				case TIMER_DISPLAY_AUTOMATION:
-					view.displayAutomation();
+					if ((getCurrentUI() == &automationInstrumentClipView)
+					    && !automationInstrumentClipView.isOnAutomationOverview()) {
+
+						automationInstrumentClipView.displayAutomation();
+					}
+
+					else {
+						view.displayAutomation();
+					}
 					break;
 
 				case TIMER_READ_INPUTS:
@@ -137,25 +149,34 @@ void UITimerManager::routine() {
 					break;
 
 				case TIMER_GRAPHICS_ROUTINE:
-					if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) > NUM_BYTES_IN_COL_UPDATE_MESSAGE) {
+					if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) > kNumBytesInColUpdateMessage) {
 						getCurrentUI()->graphicsRoutine();
 					}
 					setTimer(TIMER_GRAPHICS_ROUTINE, 15);
 					break;
 
-#if HAVE_OLED
 				case TIMER_OLED_LOW_LEVEL:
-					oledLowLevelTimerCallback();
+					if (display->haveOLED()) {
+						oledLowLevelTimerCallback();
+					}
 					break;
 
 				case TIMER_OLED_CONSOLE:
-					OLED::consoleTimerEvent();
+					if (display->haveOLED()) {
+						auto* oled = static_cast<deluge::hid::display::OLED*>(display);
+						oled->consoleTimerEvent();
+					}
 					break;
 
 				case TIMER_OLED_SCROLLING_AND_BLINKING:
-					OLED::scrollingAndBlinkingTimerEvent();
+					if (display->haveOLED()) {
+						deluge::hid::display::OLED::scrollingAndBlinkingTimerEvent();
+					}
 					break;
-#endif
+
+				case TIMER_SYSEX_DISPLAY:
+					HIDSysex::sendDisplayIfChanged();
+					break;
 				}
 			}
 		}
@@ -164,11 +185,11 @@ void UITimerManager::routine() {
 	workOutNextEventTime();
 }
 
-void UITimerManager::setTimer(int i, int ms) {
+void UITimerManager::setTimer(int32_t i, int32_t ms) {
 	setTimerSamples(i, ms * 44);
 }
 
-void UITimerManager::setTimerSamples(int i, int samples) {
+void UITimerManager::setTimerSamples(int32_t i, int32_t samples) {
 	timers[i].triggerTime = AudioEngine::audioSampleTimer + samples;
 	timers[i].active = true;
 
@@ -178,17 +199,17 @@ void UITimerManager::setTimerSamples(int i, int samples) {
 	}
 }
 
-void UITimerManager::setTimerByOtherTimer(int i, int j) {
+void UITimerManager::setTimerByOtherTimer(int32_t i, int32_t j) {
 	timers[i].triggerTime = timers[j].triggerTime;
 	timers[i].active = true;
 }
 
-void UITimerManager::unsetTimer(int i) {
+void UITimerManager::unsetTimer(int32_t i) {
 	timers[i].active = false;
 	workOutNextEventTime();
 }
 
-bool UITimerManager::isTimerSet(int i) {
+bool UITimerManager::isTimerSet(int32_t i) {
 	return timers[i].active;
 }
 
@@ -196,7 +217,7 @@ void UITimerManager::workOutNextEventTime() {
 
 	int32_t timeTilNextEvent = 2147483647;
 
-	for (int i = 0; i < NUM_TIMERS; i++) {
+	for (int32_t i = 0; i < NUM_TIMERS; i++) {
 		if (timers[i].active) {
 			int32_t timeTil = timers[i].triggerTime - AudioEngine::audioSampleTimer;
 			if (timeTil < timeTilNextEvent) {

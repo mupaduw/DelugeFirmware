@@ -15,20 +15,20 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "processing/engines/audio_engine.h"
 #include "model/sample/sample_controls.h"
-#include "definitions.h"
+#include "definitions_cxx.hpp"
+#include "processing/engines/audio_engine.h"
 #include "util/functions.h"
 
 SampleControls::SampleControls() {
-	interpolationMode = INTERPOLATION_MODE_SMOOTH;
+	interpolationMode = InterpolationMode::SMOOTH;
 	pitchAndSpeedAreIndependent = false;
 	reversed = false;
 	timeStretchEnabled = true;
 }
 
-int SampleControls::getInterpolationBufferSize(int32_t phaseIncrement) {
-	if (interpolationMode == INTERPOLATION_MODE_LINEAR) {
+int32_t SampleControls::getInterpolationBufferSize(int32_t phaseIncrement) {
+	if (interpolationMode == InterpolationMode::LINEAR) {
 useLinearInterpolation:
 		return 2;
 	}
@@ -36,7 +36,7 @@ useLinearInterpolation:
 
 		// If CPU dire...
 		if (AudioEngine::cpuDireness) {
-			int octave =
+			int32_t octave =
 			    getMagnitudeOld(phaseIncrement); // Unstretched, and the first octave going up from that, would be '25'
 			if (octave
 			    >= 26
@@ -46,6 +46,6 @@ useLinearInterpolation:
 			}
 		}
 
-		return INTERPOLATION_MAX_NUM_SAMPLES;
+		return kInterpolationMaxNumSamples;
 	}
 }

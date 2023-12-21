@@ -16,13 +16,14 @@
 */
 
 #include "key_range.h"
-#include "util/functions.h"
 #include "gui/menu_item/range.h"
 #include "gui/ui/sound_editor.h"
+#include "hid/display/display.h"
+#include "util/functions.h"
 
-namespace menu_item {
+namespace deluge::gui::menu_item {
 
-void KeyRange::selectEncoderAction(int offset) {
+void KeyRange::selectEncoderAction(int32_t offset) {
 
 	// If editing the range
 	if (soundEditor.editingRangeEdge != RangeEdit::OFF) {
@@ -30,7 +31,7 @@ void KeyRange::selectEncoderAction(int offset) {
 		// Editing lower
 		if (soundEditor.editingRangeEdge == RangeEdit::LEFT) {
 
-			int newValue = lower + offset;
+			int32_t newValue = lower + offset;
 			if (newValue < 0) {
 				newValue += 12;
 			}
@@ -55,7 +56,7 @@ void KeyRange::selectEncoderAction(int offset) {
 		// Editing upper
 		else {
 
-			int newValue = upper + offset;
+			int32_t newValue = upper + offset;
 			if (newValue < 0) {
 				newValue += 12;
 			}
@@ -100,16 +101,16 @@ justDrawRange:
 	}
 }
 
-void KeyRange::getText(char* buffer, int* getLeftLength, int* getRightLength, bool mayShowJustOne) {
+void KeyRange::getText(char* buffer, int32_t* getLeftLength, int32_t* getRightLength, bool mayShowJustOne) {
 
 	*(buffer++) = noteCodeToNoteLetter[lower];
-	int leftLength = 1;
+	int32_t leftLength = 1;
 
 	if (noteCodeIsSharp[lower]) {
-		*(buffer++) = HAVE_OLED ? '#' : '.';
-#if HAVE_OLED
-		leftLength++;
-#endif
+		*(buffer++) = (display->haveOLED()) ? '#' : '.';
+		if (display->haveOLED()) {
+			leftLength++;
+		}
 	}
 
 	if (getLeftLength) {
@@ -127,12 +128,12 @@ void KeyRange::getText(char* buffer, int* getLeftLength, int* getRightLength, bo
 	*(buffer++) = '-';
 
 	*(buffer++) = noteCodeToNoteLetter[upper];
-	int rightLength = 1;
+	int32_t rightLength = 1;
 	if (noteCodeIsSharp[upper]) {
-		*(buffer++) = HAVE_OLED ? '#' : '.';
-#if HAVE_OLED
-		rightLength++;
-#endif
+		*(buffer++) = (display->haveOLED()) ? '#' : '.';
+		if (display->haveOLED()) {
+			rightLength++;
+		}
 	}
 
 	*buffer = 0;
@@ -143,17 +144,17 @@ void KeyRange::getText(char* buffer, int* getLeftLength, int* getRightLength, bo
 }
 
 // Call seedRandom() before you call this
-int KeyRange::getRandomValueInRange() {
+int32_t KeyRange::getRandomValueInRange() {
 	if (lower == upper) {
 		return lower;
 	}
 	else {
-		int range = upper - lower;
+		int32_t range = upper - lower;
 		if (range < 0) {
 			range += 12;
 		}
 
-		int value = lower + random(range);
+		int32_t value = lower + random(range);
 		if (range >= 12) {
 			range -= 12;
 		}
@@ -162,11 +163,11 @@ int KeyRange::getRandomValueInRange() {
 }
 
 bool KeyRange::isTotallyRandom() {
-	int range = upper - lower;
+	int32_t range = upper - lower;
 	if (range < 0) {
 		range += 12;
 	}
 
 	return (range == 11);
 }
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

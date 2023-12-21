@@ -15,19 +15,26 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "gui/ui/sound_editor.h"
+#include "processing/sound/sound.h"
 #include "submenu.h"
 
-namespace menu_item {
-
+namespace deluge::gui::menu_item {
 class SubmenuReferringToOneThing : public Submenu {
 public:
-	SubmenuReferringToOneThing() {}
-	SubmenuReferringToOneThing(char const* newName, MenuItem** newItems, int newThingIndex)
-	    : Submenu(newName, newItems) {
-		thingIndex = newThingIndex;
+	SubmenuReferringToOneThing(l10n::String newName, std::initializer_list<MenuItem*> newItems, int32_t newThingIndex)
+	    : Submenu(newName, newItems), thingIndex(newThingIndex) {}
+
+	SubmenuReferringToOneThing(l10n::String newName, std::span<MenuItem*> newItems, int32_t newThingIndex)
+	    : Submenu(newName, newItems), thingIndex(newThingIndex) {}
+
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override {
+		soundEditor.currentSourceIndex = thingIndex;
+		soundEditor.currentSource = &soundEditor.currentSound->sources[thingIndex];
+		soundEditor.currentSampleControls = &soundEditor.currentSource->sampleControls;
+		Submenu::beginSession(navigatedBackwardFrom);
 	}
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
 
 	uint8_t thingIndex;
 };
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

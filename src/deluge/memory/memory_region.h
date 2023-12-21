@@ -17,9 +17,10 @@
 
 #pragma once
 
+#include "definitions_cxx.hpp"
+#include "memory/cache_manager.h"
 #include "util/container/array/ordered_resizeable_array_with_multi_word_key.h"
 #include "util/container/list/bidirectional_linked_list.h"
-#include "definitions.h"
 
 struct EmptySpaceRecord {
 	uint32_t length;
@@ -28,7 +29,7 @@ struct EmptySpaceRecord {
 
 struct NeighbouringMemoryGrabAttemptResult {
 	uint32_t address; // 0 means didn't grab / not found.
-	int amountsExtended[2];
+	int32_t amountsExtended[2];
 	uint32_t longestRunFound; // Only valid if didn't return some space.
 };
 
@@ -36,15 +37,17 @@ struct NeighbouringMemoryGrabAttemptResult {
 #define SPACE_HEADER_STEALABLE 0x40000000
 #define SPACE_HEADER_ALLOCATED 0x80000000
 
-#define SPACE_TYPE_MASK 0xC0000000
-#define SPACE_SIZE_MASK 0x3FFFFFFF
+#define SPACE_TYPE_MASK 0xC0000000u
+#define SPACE_SIZE_MASK 0x3FFFFFFFu
+
+constexpr int32_t maxAlign = 1 << 12;
+constexpr int32_t minAlign = 64;
 
 class MemoryRegion {
 public:
 	MemoryRegion();
-	void setup(void* emptySpacesMemory, int emptySpacesMemorySize, uint32_t regionBegin, uint32_t regionEnd);
-	void* alloc(uint32_t requiredSize, uint32_t* getAllocatedSize, bool makeStealable, void* thingNotToStealFrom,
-	            bool getBiggestAllocationPossible);
+	void setup(void* emptySpacesMemory, int32_t emptySpacesMemorySize, uint32_t regionBegin, uint32_t regionEnd);
+	void* alloc(uint32_t requiredSize, bool makeStealable, void* thingNotToStealFrom);
 	uint32_t shortenRight(void* address, uint32_t newSize);
 	uint32_t shortenLeft(void* address, uint32_t amountToShorten, uint32_t numBytesToMoveRightIfSuccessful = 0);
 	void extend(void* address, uint32_t minAmountToExtend, uint32_t idealAmountToExtend,
@@ -53,25 +56,28 @@ public:
 	void dealloc(void* address);
 	void verifyMemoryNotFree(void* address, uint32_t spaceSize);
 
-	BidirectionalLinkedList stealableClusterQueues[NUM_STEALABLE_QUEUES];
-	// Keeps track, semi-accurately, of biggest runs of memory that could be stolen. In a perfect world, we'd have a second
-	// index on stealableClusterQueues[q], for run length. Although even that wouldn't automatically reflect changes to run
-	// lengths as neighbouring memory is allocated.
-	uint32_t stealableClusterQueueLongestRuns[NUM_STEALABLE_QUEUES];
-	OrderedResizeableArrayWithMultiWordKey emptySpaces;
-	int numAllocations;
+	uint32_t start;
+	uint32_t end;
+	uint32_t numAllocations;
+	uint32_t pivot;
+	CacheManager& cache_manager() { return cache_manager_; }
 
 #if ALPHA_OR_BETA_VERSION
 	char const* name; // For debugging messages only.
 #endif
+	OrderedResizeableArrayWithMultiWordKey emptySpaces;
 
 private:
-	uint32_t freeSomeStealableMemory(int totalSizeNeeded, void* thingNotToStealFrom, int* __restrict__ foundSpaceSize);
+	friend class CacheManager;
+	CacheManager cache_manager_;
+
 	void markSpaceAsEmpty(uint32_t spaceStart, uint32_t spaceSize, bool mayLookLeft = true, bool mayLookRight = true);
 	NeighbouringMemoryGrabAttemptResult
-	attemptToGrabNeighbouringMemory(void* originalSpaceAddress, int originalSpaceSize, int minAmountToExtend,
-	                                int idealAmountToExtend, void* thingNotToStealFrom,
+	attemptToGrabNeighbouringMemory(void* originalSpaceAddress, int32_t originalSpaceSize, int32_t minAmountToExtend,
+	                                int32_t idealAmountToExtend, void* thingNotToStealFrom,
 	                                uint32_t markWithTraversalNo = 0, bool originalSpaceNeedsStealing = false);
+
 	void writeTempHeadersBeforeASteal(uint32_t newStartAddress, uint32_t newSize);
 	void sanityCheck();
+	uint32_t padSize(uint32_t requiredSize);
 };

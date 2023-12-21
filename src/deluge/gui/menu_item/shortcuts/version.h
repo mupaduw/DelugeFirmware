@@ -15,30 +15,22 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 
-namespace menu_item::shortcuts {
+namespace deluge::gui::menu_item::shortcuts {
 class Version final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() { soundEditor.currentValue = soundEditor.shortcutsVersion; }
-	void writeCurrentValue() { soundEditor.setShortcutsVersion(soundEditor.currentValue); }
-	char const** getOptions() {
-		static char const* options[] = {
-#if HAVE_OLED
-			"1.0",
-			"3.0",
-			NULL
-#else
-			"  1.0",
-			"  3.0"
-#endif
+	void readCurrentValue() override { this->setValue(soundEditor.shortcutsVersion); }
+	void writeCurrentValue() override { soundEditor.setShortcutsVersion(this->getValue()); }
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {
+		    l10n::getView(STRING_FOR_SHORTCUTS_VERSION_1),
+		    l10n::getView(STRING_FOR_SHORTCUTS_VERSION_3),
 		};
-		return options;
-	}
-	int getNumOptions() {
-		return NUM_SHORTCUTS_VERSIONS;
 	}
 };
-} // namespace menu_item::shortcuts
+} // namespace deluge::gui::menu_item::shortcuts

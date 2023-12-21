@@ -17,17 +17,20 @@
 
 #pragma once
 
+#include "definitions.h"
 #include "gui/menu_item/submenu.h"
+#include "model/settings/runtime_feature_settings.h"
 
-namespace menu_item::runtime_feature {
+namespace deluge::gui::menu_item::runtime_feature {
 
+/// Some runtime feature settings are squirrled away in submenus.
+constexpr size_t kNonTopLevelSettings = 4;
+// RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings
 class Settings final : public Submenu {
 public:
-	Settings(char const* name);
+	Settings(l10n::String name, l10n::String title);
 
 private:
 };
 
-extern Settings runtimeFeatureSettingsMenu;
-
-} // namespace menu_item::runtime_feature
+} // namespace deluge::gui::menu_item::runtime_feature

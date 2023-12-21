@@ -16,16 +16,20 @@
 */
 
 #include "storage/audio/audio_file_vector.h"
+#include "hid/display/display.h"
 #include "storage/audio/audio_file.h"
-#include "hid/display/numeric_driver.h"
+
+#pragma GCC diagnostic push
+//This is supported by GCC and other compilers should error (not warn), so turn off for this file
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
 
 AudioFileVector::AudioFileVector() : NamedThingVector(__builtin_offsetof(AudioFile, filePath)) {
 }
 
 // Returns -1 if not found. All times this is called, it actually should get found - but some bugs remain, and the caller must deal with these.
-int AudioFileVector::searchForExactObject(AudioFile* audioFile) {
+int32_t AudioFileVector::searchForExactObject(AudioFile* audioFile) {
 	bool foundExactName;
-	int i = search(audioFile->filePath.get(), GREATER_OR_EQUAL, &foundExactName);
+	int32_t i = search(audioFile->filePath.get(), GREATER_OR_EQUAL, &foundExactName);
 	if (!foundExactName) {
 		return -1;
 	}
@@ -56,3 +60,4 @@ int AudioFileVector::searchForExactObject(AudioFile* audioFile) {
 gotIt:
 	return i;
 }
+#pragma GCC diagnostic pop

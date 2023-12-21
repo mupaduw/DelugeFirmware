@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include "RZA1/system/r_typedefs.h"
+#include <cmath>
+#include <cstdint>
 
 class StereoSample;
 
@@ -26,9 +27,11 @@ public:
 	Metronome();
 	void trigger(uint32_t newPhaseIncrement);
 	void render(StereoSample* buffer, uint16_t numSamples);
+	void setVolume(int32_t linearParam) { metronomeVolume = (exp(float(linearParam) / 200.0f) - 1.0) * float(1 << 27); }
 
 	uint32_t phase;
 	uint32_t phaseIncrement;
 	uint32_t timeSinceTrigger;
+	uint32_t metronomeVolume;
 	bool sounding;
 };

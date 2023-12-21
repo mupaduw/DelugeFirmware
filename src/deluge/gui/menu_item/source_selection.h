@@ -16,34 +16,33 @@
 */
 
 #pragma once
-#include "menu_item.h"
-#include "definitions.h"
+#include "definitions_cxx.hpp"
+#include "value.h"
 
 class ParamDescriptor;
 
-namespace menu_item {
-class SourceSelection : public MenuItem {
+namespace deluge::gui::menu_item {
+class SourceSelection : public Value<int32_t> {
 public:
-	SourceSelection();
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
-	void selectEncoderAction(int offset) final;
+	using Value::Value;
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override;
+	void selectEncoderAction(int32_t offset) final;
 	virtual ParamDescriptor getDestinationDescriptor() = 0;
 	uint8_t getIndexOfPatchedParamToBlink() final;
-	uint8_t shouldBlinkPatchingSourceShortcut(int s, uint8_t* colour) final;
+	uint8_t shouldBlinkPatchingSourceShortcut(PatchSource s, uint8_t* colour) final;
 	void readValueAgain() final;
 
-#if HAVE_OLED
 	void drawPixelsForOled();
-	static int selectedRowOnScreen;
-	int scrollPos; // Each instance needs to store this separately
-#else
-	void drawValue();
-#endif
+	static int32_t selectedRowOnScreen;
+	int32_t scrollPos; // Each instance needs to store this separately
 
-	uint8_t s;
+	// 7seg only
+	void drawValue() override;
+
+	PatchSource s;
 
 protected:
-	bool sourceIsAllowed(int source);
+	bool sourceIsAllowed(PatchSource source);
 	uint8_t shouldDrawDotOnValue();
 };
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

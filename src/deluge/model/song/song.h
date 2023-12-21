@@ -17,13 +17,15 @@
 
 #pragma once
 
+#include "definitions_cxx.hpp"
+#include "io/midi/learned_midi.h"
 #include "model/clip/clip_array.h"
 #include "model/global_effectable/global_effectable_for_song.h"
-#include "modulation/params/param_manager.h"
 #include "model/timeline_counter.h"
+#include "modulation/params/param_manager.h"
+#include "storage/flash_storage.h"
 #include "util/container/array/ordered_resizeable_array_with_multi_word_key.h"
 #include "util/d_string.h"
-#include "io/midi/learned_midi.h"
 
 class MidiCommand;
 class InstrumentClip;
@@ -66,18 +68,18 @@ public:
 	~Song();
 	bool mayDoubleTempo();
 	bool ensureAtLeastOneSessionClip();
-	void transposeAllScaleModeClips(int offset);
+	void transposeAllScaleModeClips(int32_t offset);
 	bool anyScaleModeClips();
-	void setRootNote(int newRootNote, InstrumentClip* clipToAvoidAdjustingScrollFor = NULL);
+	void setRootNote(int32_t newRootNote, InstrumentClip* clipToAvoidAdjustingScrollFor = NULL);
 	void addModeNote(uint8_t modeNote);
 	void addMajorDependentModeNotes(uint8_t i, bool preferHigher, bool notesWithinOctavePresent[]);
-	bool yNoteIsYVisualWithinOctave(int yNote, int yVisualWithinOctave);
-	uint8_t getYNoteWithinOctaveFromYNote(int yNote);
+	bool yNoteIsYVisualWithinOctave(int32_t yNote, int32_t yVisualWithinOctave);
+	uint8_t getYNoteWithinOctaveFromYNote(int32_t yNote);
 	void changeMusicalMode(uint8_t yVisualWithinOctave, int8_t change);
-	int getYVisualFromYNote(int yNote, bool inKeyMode);
-	int getYNoteFromYVisual(int yVisual, bool inKeyMode);
+	int32_t getYVisualFromYNote(int32_t yNote, bool inKeyMode);
+	int32_t getYNoteFromYVisual(int32_t yVisual, bool inKeyMode);
 	bool mayMoveModeNote(int16_t yVisualWithinOctave, int8_t newOffset);
-	bool modeContainsYNote(int yNote);
+	bool modeContainsYNote(int32_t yNote);
 	ParamManagerForTimeline* findParamManagerForDrum(Kit* kit, Drum* drum, Clip* stopTraversalAtClip = NULL);
 	void setupPatchingForAllParamManagersForDrum(SoundDrum* drum);
 	void setupPatchingForAllParamManagersForInstrument(SoundInstrument* sound);
@@ -86,22 +88,23 @@ public:
 	void grabVelocityToLevelFromMIDIDeviceAndSetupPatchingForAllParamManagersForDrum(MIDIDevice* device,
 	                                                                                 SoundDrum* drum, Kit* kit);
 	void grabVelocityToLevelFromMIDIDeviceAndSetupPatchingForEverything(MIDIDevice* device);
-	int cycleThroughScales();
-	int getCurrentPresetScale();
+	int32_t cycleThroughScales();
+	int32_t getCurrentPresetScale();
 	void setTempoFromNumSamples(double newTempoSamples, bool shouldLogAction);
 	void setupDefault();
 	void setBPM(float tempoBPM, bool shouldLogAction);
 	void setTempoFromParams(int32_t magnitude, int8_t whichValue, bool shouldLogAction);
 	void deleteSoundsWhichWontSound();
-	void deleteClipObject(Clip* clip, bool songBeingDestroyedToo = false,
-	                      int instrumentRemovalInstruction = INSTRUMENT_REMOVAL_DELETE_OR_HIBERNATE_IF_UNUSED);
-	int getMaxMIDIChannelSuffix(int channel);
+	void
+	deleteClipObject(Clip* clip, bool songBeingDestroyedToo = false,
+	                 InstrumentRemoval instrumentRemovalInstruction = InstrumentRemoval::DELETE_OR_HIBERNATE_IF_UNUSED);
+	int32_t getMaxMIDIChannelSuffix(int32_t channel);
 	void addOutput(Output* output, bool atStart = true);
 	void deleteOutputThatIsInMainList(Output* output, bool stopAnyAuditioningFirst = true);
 	void markAllInstrumentsAsEdited();
-	Instrument* getInstrumentFromPresetSlot(int instrumentType, int presetNumber, int presetSubSlotNumber,
-	                                        char const* name, char const* dirPath, bool searchHibernatingToo = true,
-	                                        bool searchNonHibernating = true);
+	Instrument* getInstrumentFromPresetSlot(InstrumentType instrumentType, int32_t presetNumber,
+	                                        int32_t presetSubSlotNumber, char const* name, char const* dirPath,
+	                                        bool searchHibernatingToo = true, bool searchNonHibernating = true);
 	AudioOutput* getAudioOutputFromName(String* name);
 	void setupPatchingForAllParamManagers();
 	void replaceInstrument(Instrument* oldInstrument, Instrument* newInstrument, bool keepNoteRowsWithMIDIInput = true);
@@ -110,12 +113,12 @@ public:
 	void deleteOrHibernateOutput(Output* output);
 	uint32_t getLivePos();
 	int32_t getLoopLength();
-	Instrument* getNonAudioInstrumentToSwitchTo(int newInstrumentType, int availabilityRequirement, int16_t newSlot,
-	                                            int8_t newSubSlot, bool* instrumentWasAlreadyInSong);
-	void removeSessionClipLowLevel(Clip* clip, int clipIndex);
-	void changeSwingInterval(int newValue);
-	int convertSyncLevelFromFileValueToInternalValue(int fileValue);
-	int convertSyncLevelFromInternalValueToFileValue(int internalValue);
+	Instrument* getNonAudioInstrumentToSwitchTo(InstrumentType newInstrumentType, Availability availabilityRequirement,
+	                                            int16_t newSlot, int8_t newSubSlot, bool* instrumentWasAlreadyInSong);
+	void removeSessionClipLowLevel(Clip* clip, int32_t clipIndex);
+	void changeSwingInterval(int32_t newValue);
+	int32_t convertSyncLevelFromFileValueToInternalValue(int32_t fileValue);
+	int32_t convertSyncLevelFromInternalValueToFileValue(int32_t internalValue);
 
 	GlobalEffectableForSong globalEffectable;
 
@@ -144,15 +147,15 @@ public:
 	// but is different if there's an inputTickScaleClip.
 	// So, e.g. if insideWorldTickMagnitude is 1, this means the inside world is spinning twice as fast as the external world, so MIDI sync coming in representing
 	// an 8th-note would be interpreted internally as a quarter-note (because two internal 8th-notes would have happened, twice as fast, making a quarter-note)
-	int insideWorldTickMagnitude;
+	int32_t insideWorldTickMagnitude;
 
 	// Sometimes, we'll do weird stuff to insideWorldTickMagnitude for sync-scaling, which would make BPM values look weird. So, we keep insideWorldTickMagnitudeOffsetFromBPM
-	int insideWorldTickMagnitudeOffsetFromBPM;
+	int32_t insideWorldTickMagnitudeOffsetFromBPM;
 
 	int8_t swingAmount;
 	uint8_t swingInterval;
 
-	Section sections[MAX_NUM_SECTIONS];
+	Section sections[kMaxNumSections];
 
 	// Scales
 	uint8_t modeNotes[12];
@@ -166,8 +169,11 @@ public:
 	bool affectEntire;
 	bool timeStretchEnabled;
 
-	int songViewYScroll;
-	int arrangementYScroll;
+	SessionLayoutType sessionLayout = FlashStorage::defaultSessionLayout;
+	int32_t songGridScrollX = 0;
+	int32_t songGridScrollY = 0;
+	int32_t songViewYScroll;
+	int32_t arrangementYScroll;
 
 	uint8_t sectionToReturnToAfterSongEnd;
 
@@ -186,7 +192,7 @@ public:
 
 	bool inClipMinderViewOnLoad; // Temp variable only valid while loading Song
 
-	int32_t unautomatedParamValues[MAX_NUM_UNPATCHED_PARAMS];
+	int32_t unautomatedParamValues[kMaxNumUnpatchedParams];
 
 	String dirPath;
 
@@ -194,29 +200,31 @@ public:
 	uint32_t getInputTickScale();
 	Clip* getSyncScalingClip();
 	void setInputTickScaleClip(Clip* clip);
-
+	inline bool isFillModeActive() { return fillModeActive; }
+	void changeFillMode(bool on);
 	void setClipLength(Clip* clip, uint32_t newLength, Action* action, bool mayReSyncClip = true);
 	void doubleClipLength(InstrumentClip* clip, Action* action = NULL);
 	Clip* getClipWithOutput(Output* output, bool mustBeActive = false, Clip* excludeClip = NULL);
-	int readFromFile();
+	int32_t readFromFile();
 	void writeToFile();
 	void loadAllSamples(bool mayActuallyReadFiles = true);
 	bool modeContainsYNoteWithinOctave(uint8_t yNoteWithinOctave);
-	void renderAudio(StereoSample* outputBuffer, int numSamples, int32_t* reverbBuffer, int32_t sideChainHitPending);
-	bool isYNoteAllowed(int yNote, bool inKeyMode);
+	void renderAudio(StereoSample* outputBuffer, int32_t numSamples, int32_t* reverbBuffer,
+	                 int32_t sideChainHitPending);
+	bool isYNoteAllowed(int32_t yNote, bool inKeyMode);
 	Clip* syncScalingClip;
 	void setTimePerTimerTick(uint64_t newTimeBig, bool shouldLogAction = false);
 	bool hasAnySwing();
 	void resyncLFOsAndArpeggiators();
 	void ensureInaccessibleParamPresetValuesWithoutKnobsAreZero(Sound* sound);
-	bool areAllClipsInSectionPlaying(int section);
-	void removeYNoteFromMode(int yNoteWithinOctave);
+	bool areAllClipsInSectionPlaying(int32_t section);
+	void removeYNoteFromMode(int32_t yNoteWithinOctave);
 	void turnSoloingIntoJustPlaying(bool getRidOfArmingToo = true);
 	void reassessWhetherAnyClipsSoloing();
 	float getTimePerTimerTickFloat();
 	uint32_t getTimePerTimerTickRounded();
-	int getNumOutputs();
-	Clip* getNextSessionClipWithOutput(int offset, Output* output, Clip* prevClip);
+	int32_t getNumOutputs();
+	Clip* getNextSessionClipWithOutput(int32_t offset, Output* output, Clip* prevClip);
 	bool anyClipsSoloing;
 
 	ParamManager* getBackedUpParamManagerForExactClip(ModControllableAudio* modControllable, Clip* clip,
@@ -229,39 +237,39 @@ public:
 	void deleteOrHibernateOutputIfNoClips(Output* output);
 	void removeInstrumentFromHibernationList(Instrument* instrument);
 	bool doesOutputHaveActiveClipInSession(Output* output);
-	bool doesNonAudioSlotHaveActiveClipInSession(int instrumentType, int slot, int subSlot = -1);
+	bool doesNonAudioSlotHaveActiveClipInSession(InstrumentType instrumentType, int32_t slot, int32_t subSlot = -1);
 	bool doesOutputHaveAnyClips(Output* output);
 	void deleteBackedUpParamManagersForClip(Clip* clip);
 	void deleteBackedUpParamManagersForModControllable(ModControllableAudio* modControllable);
-	void deleteHibernatingInstrumentWithSlot(int instrumentType, char const* name);
+	void deleteHibernatingInstrumentWithSlot(InstrumentType instrumentType, char const* name);
 	void loadCrucialSamplesOnly();
-	Clip* getSessionClipWithOutput(Output* output, int requireSection = -1, Clip* excludeClip = NULL,
-	                               int* clipIndex = NULL, bool excludePendingOverdubs = false);
+	Clip* getSessionClipWithOutput(Output* output, int32_t requireSection = -1, Clip* excludeClip = NULL,
+	                               int32_t* clipIndex = NULL, bool excludePendingOverdubs = false);
 	void restoreClipStatesBeforeArrangementPlay();
 	void deleteOrAddToHibernationListOutput(Output* output);
-	int getLowestSectionWithNoSessionClipForOutput(Output* output);
+	int32_t getLowestSectionWithNoSessionClipForOutput(Output* output);
 	void assertActiveness(ModelStackWithTimelineCounter* modelStack, int32_t endInstanceAtTime = -1);
 	bool isClipActive(Clip* clip);
 	void sendAllMIDIPGMs();
-	void sortOutWhichClipsAreActiveWithoutSendingPGMs(ModelStack* modelStack, int playbackWillStartInArrangerAtPos);
+	void sortOutWhichClipsAreActiveWithoutSendingPGMs(ModelStack* modelStack, int32_t playbackWillStartInArrangerAtPos);
 	void deactivateAnyArrangementOnlyClips();
 	Clip* getLongestClip(bool includePlayDisabled, bool includeArrangementOnly);
 	Clip* getLongestActiveClipWithMultipleOrFactorLength(int32_t targetLength, bool revertToAnyActiveClipIfNone = true,
 	                                                     Clip* excludeClip = NULL);
-	int getOutputIndex(Output* output);
+	int32_t getOutputIndex(Output* output);
 	void setHibernatingMIDIInstrument(MIDIInstrument* newInstrument);
 	void deleteHibernatingMIDIInstrument();
-	MIDIInstrument* grabHibernatingMIDIInstrument(int newSlot, int newSubSlot);
+	MIDIInstrument* grabHibernatingMIDIInstrument(int32_t newSlot, int32_t newSubSlot);
 	NoteRow* findNoteRowForDrum(Kit* kit, Drum* drum, Clip* stopTraversalAtClip = NULL);
 
 	bool anyOutputsSoloingInArrangement;
 	bool getAnyOutputsSoloingInArrangement();
 	void reassessWhetherAnyOutputsSoloingInArrangement();
 	bool isOutputActiveInArrangement(Output* output);
-	Output* getOutputFromIndex(int index);
+	Output* getOutputFromIndex(int32_t index);
 	void ensureAllInstrumentsHaveAClipOrBackedUpParamManager(char const* errorMessageNormal,
 	                                                         char const* errorMessageHibernating);
-	int placeFirstInstancesOfActiveClips(int32_t pos);
+	int32_t placeFirstInstancesOfActiveClips(int32_t pos);
 	void endInstancesOfActiveClips(int32_t pos, bool detachClipsToo = false);
 	void clearArrangementBeyondPos(int32_t pos, Action* action);
 	void deletingClipInstanceForClip(Output* output, Clip* clip, Action* action, bool shouldPickNewActiveClip);
@@ -275,31 +283,32 @@ public:
 	TimelineCounter* getTimelineCounterToRecordTo();
 	int32_t getLastProcessedPos();
 	void setParamsInAutomationMode(bool newState);
-	bool canOldOutputBeReplaced(Clip* clip, int* availabilityRequirement = NULL);
+	bool canOldOutputBeReplaced(Clip* clip, Availability* availabilityRequirement = NULL);
+	Output* navigateThroughPresetsForInstrument(Output* output, int32_t offset);
 	void instrumentSwapped(Instrument* newInstrument);
-	Instrument* changeInstrumentType(Instrument* oldInstrument, int newInstrumentType);
+	Instrument* changeInstrumentType(Instrument* oldInstrument, InstrumentType newInstrumentType);
 	AudioOutput* getFirstAudioOutput();
 	AudioOutput* createNewAudioOutput(Output* replaceOutput = NULL);
 	void getNoteLengthName(char* text, uint32_t noteLength, bool clarifyPerColumn = false);
 	void replaceOutputLowLevel(Output* newOutput, Output* oldOutput);
-	void removeSessionClip(Clip* clip, int clipIndex, bool forceClipsAboveToMoveVertically = false);
-	bool deletePendingOverdubs(Output* onlyWithOutput = NULL, int* originalClipIndex = NULL,
+	void removeSessionClip(Clip* clip, int32_t clipIndex, bool forceClipsAboveToMoveVertically = false);
+	bool deletePendingOverdubs(Output* onlyWithOutput = NULL, int32_t* originalClipIndex = NULL,
 	                           bool createConsequencesForOtherLinearlyRecordingClips = false);
 	Clip* getPendingOverdubWithOutput(Output* output);
 	Clip* getClipWithOutputAboutToBeginLinearRecording(Output* output);
-	Clip* createPendingNextOverdubBelowClip(Clip* clip, int clipIndex, int newOverdubNature);
+	Clip* createPendingNextOverdubBelowClip(Clip* clip, int32_t clipIndex, OverDubType newOverdubNature);
 	bool hasAnyPendingNextOverdubs();
-	Output* getNextAudioOutput(int offset, Output* oldOutput, int availabilityRequirement);
+	Output* getNextAudioOutput(int32_t offset, Output* oldOutput, Availability availabilityRequirement);
 	void deleteOutput(Output* output);
 	void cullAudioClipVoice();
-	int getYScrollSongViewWithoutPendingOverdubs();
-	int removeOutputFromMainList(Output* output, bool stopAnyAuditioningFirst = true);
-	void swapClips(Clip* newClip, Clip* oldClip, int clipIndex);
-	Clip* replaceInstrumentClipWithAudioClip(Clip* oldClip, int clipIndex);
+	int32_t getYScrollSongViewWithoutPendingOverdubs();
+	int32_t removeOutputFromMainList(Output* output, bool stopAnyAuditioningFirst = true);
+	void swapClips(Clip* newClip, Clip* oldClip, int32_t clipIndex);
+	Clip* replaceInstrumentClipWithAudioClip(Clip* oldClip, int32_t clipIndex);
 	void setDefaultVelocityForAllInstruments(uint8_t newDefaultVelocity);
-	void midiDeviceBendRangeUpdatedViaMessage(ModelStack* modelStack, MIDIDevice* device, int channelOrZone,
-	                                          int whichBendRange, int bendSemitones);
-	int addInstrumentsToFileItems(int instrumentType);
+	void midiDeviceBendRangeUpdatedViaMessage(ModelStack* modelStack, MIDIDevice* device, int32_t channelOrZone,
+	                                          int32_t whichBendRange, int32_t bendSemitones);
+	int32_t addInstrumentsToFileItems(InstrumentType instrumentType);
 
 	uint32_t getQuarterNoteLength();
 	uint32_t getBarLength();
@@ -318,9 +327,16 @@ public:
 	int32_t reverbCompressorRelease;
 	SyncLevel reverbCompressorSync;
 
+	int32_t masterCompressorAttack;
+	int32_t masterCompressorRelease;
+	int32_t masterCompressorThresh;
+	int32_t masterCompressorRatio;
+	int32_t masterCompressorSidechain;
+
 private:
+	bool fillModeActive;
 	void inputTickScalePotentiallyJustChanged(uint32_t oldScale);
-	int readClipsFromFile(ClipArray* clipArray);
+	int32_t readClipsFromFile(ClipArray* clipArray);
 	void addInstrumentToHibernationList(Instrument* instrument);
 	void deleteAllBackedUpParamManagers(bool shouldAlsoEmptyVector = true);
 	void deleteAllBackedUpParamManagersWithClips();
@@ -330,3 +346,4 @@ private:
 
 extern Song* currentSong;
 extern Song* preLoadedSong;
+extern int8_t defaultAudioClipOverdubOutputCloning;

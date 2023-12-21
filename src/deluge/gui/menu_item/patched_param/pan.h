@@ -17,21 +17,16 @@
 #pragma once
 #include "integer.h"
 
-namespace menu_item::patched_param {
+namespace deluge::gui::menu_item::patched_param {
 class Pan : public Integer {
 public:
-	Pan(char const* newName = 0, int newP = 0) : Integer(newName, newP) {}
-#if !HAVE_OLED
-	void drawValue();
-#endif
+	using Integer::Integer;
+	void drawValue() override;
+
 protected:
-	int getMaxValue() {
-		return 32;
-	}
-	int getMinValue() {
-		return -32;
-	}
-	int32_t getFinalValue();
-	void readCurrentValue();
+	[[nodiscard]] int32_t getMaxValue() const override { return kMaxMenuPanValue; }
+	[[nodiscard]] int32_t getMinValue() const override { return kMinMenuPanValue; }
+	int32_t getFinalValue() override;
+	void readCurrentValue() override;
 };
-} // namespace menu_item::patched_param
+} // namespace deluge::gui::menu_item::patched_param

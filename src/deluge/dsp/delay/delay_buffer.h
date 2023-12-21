@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "RZA1/system/r_typedefs.h"
-#include <math.h>
 #include "dsp/stereo_sample.h"
+#include <cstdint>
+#include <math.h>
 
 class StereoSample;
 
@@ -80,8 +80,8 @@ public:
 			*writePos = bufferStart;
 	}
 
-	inline void writeResampled(int32_t toDelayL, int32_t toDelayR, int32_t strength1, int32_t strength2,
-	                           DelayBufferSetup* setup) {
+	[[gnu::always_inline]] inline void writeResampled(int32_t toDelayL, int32_t toDelayR, int32_t strength1,
+	                                                  int32_t strength2, DelayBufferSetup* setup) {
 		// If delay buffer spinning above sample rate...
 		if (setup->actualSpinRate >= 16777216) {
 

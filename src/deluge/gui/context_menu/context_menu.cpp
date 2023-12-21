@@ -17,22 +17,14 @@
 
 #include "gui/context_menu/context_menu.h"
 
-#include "hid/display/numeric_driver.h"
-#include "util/functions.h"
-#include "hid/led/indicator_leds.h"
+#include "definitions_cxx.hpp"
 #include "extern.h"
-
-#if HAVE_OLED
+#include "hid/display/display.h"
 #include "hid/display/oled.h"
-#endif
+#include "hid/led/indicator_leds.h"
+#include "util/functions.h"
 
 namespace deluge::gui {
-
-ContextMenu::ContextMenu() {
-#if HAVE_OLED
-	oledShowsUIUnderneath = true;
-#endif
-}
 
 bool ContextMenu::getGreyoutRowsAndCols(uint32_t* cols, uint32_t* rows) {
 	*cols = 0xFFFFFFFF;
@@ -43,9 +35,7 @@ bool ContextMenu::setupAndCheckAvailability() {
 	const auto [_options, numOptions] = getOptions();
 	for (currentOption = 0; currentOption < numOptions; currentOption++) {
 		if (isCurrentOptionAvailable()) {
-#if HAVE_OLED
 			scrollPos = currentOption;
-#endif
 			return true;
 		}
 	}
@@ -61,36 +51,35 @@ bool ContextMenu::opened() {
 */
 
 void ContextMenu::focusRegained() {
-#if !HAVE_OLED
-	drawCurrentOption();
-#endif
+	if (display->have7SEG()) {
+		drawCurrentOption();
+	}
 }
 
-#if HAVE_OLED
 void ContextMenu::renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]) {
 	const auto [options, numOptions] = getOptions();
 
-	int windowWidth = 100;
-	int windowHeight = 40;
+	int32_t windowWidth = 100;
+	int32_t windowHeight = 40;
 
-	int windowMinX = (OLED_MAIN_WIDTH_PIXELS - windowWidth) >> 1;
-	int windowMaxX = OLED_MAIN_WIDTH_PIXELS - windowMinX;
+	int32_t windowMinX = (OLED_MAIN_WIDTH_PIXELS - windowWidth) >> 1;
+	int32_t windowMaxX = OLED_MAIN_WIDTH_PIXELS - windowMinX;
 
-	int windowMinY = (OLED_MAIN_HEIGHT_PIXELS - windowHeight) >> 1;
-	int windowMaxY = OLED_MAIN_HEIGHT_PIXELS - windowMinY;
+	int32_t windowMinY = (OLED_MAIN_HEIGHT_PIXELS - windowHeight) >> 1;
+	int32_t windowMaxY = OLED_MAIN_HEIGHT_PIXELS - windowMinY;
 
-	OLED::clearAreaExact(windowMinX + 1, windowMinY + 1, windowMaxX - 1, windowMaxY - 1, image);
+	hid::display::OLED::clearAreaExact(windowMinX + 1, windowMinY + 1, windowMaxX - 1, windowMaxY - 1, image);
 
-	OLED::drawRectangle(windowMinX, windowMinY, windowMaxX, windowMaxY, image);
-	OLED::drawHorizontalLine(windowMinY + 15, 22, OLED_MAIN_WIDTH_PIXELS - 30, &image[0]);
-	OLED::drawString(this->getTitle(), 22, windowMinY + 6, image[0], OLED_MAIN_WIDTH_PIXELS, TEXT_SPACING_X,
-	                 TEXT_SPACING_Y);
+	hid::display::OLED::drawRectangle(windowMinX, windowMinY, windowMaxX, windowMaxY, image);
+	hid::display::OLED::drawHorizontalLine(windowMinY + 15, 22, OLED_MAIN_WIDTH_PIXELS - 30, &image[0]);
+	hid::display::OLED::drawString(this->getTitle(), 22, windowMinY + 6, image[0], OLED_MAIN_WIDTH_PIXELS,
+	                               kTextSpacingX, kTextSpacingY);
 
-	int textPixelY = windowMinY + 18;
-	int actualCurrentOption = currentOption;
+	int32_t textPixelY = windowMinY + 18;
+	int32_t actualCurrentOption = currentOption;
 
 	currentOption = scrollPos;
-	int i = 0;
+	int32_t i = 0;
 
 	while (true) {
 		if (currentOption >= numOptions) {
@@ -101,14 +90,17 @@ void ContextMenu::renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]) {
 		}
 
 		if (isCurrentOptionAvailable()) {
-			OLED::drawString(options[currentOption], 22, textPixelY, image[0], OLED_MAIN_WIDTH_PIXELS, TEXT_SPACING_X,
-			                 TEXT_SPACING_Y, 0, OLED_MAIN_WIDTH_PIXELS - 22);
+			deluge::hid::display::OLED::drawString(options[currentOption], 22, textPixelY, image[0],
+			                                       OLED_MAIN_WIDTH_PIXELS, kTextSpacingX, kTextSpacingY, 0,
+			                                       OLED_MAIN_WIDTH_PIXELS - 22);
 			if (currentOption == actualCurrentOption) {
-				OLED::invertArea(22, OLED_MAIN_WIDTH_PIXELS - 44, textPixelY, textPixelY + 8, &image[0]);
-				OLED::setupSideScroller(0, options[currentOption], 22, OLED_MAIN_WIDTH_PIXELS - 22, textPixelY,
-				                        textPixelY + 8, TEXT_SPACING_X, TEXT_SPACING_Y, true);
+				deluge::hid::display::OLED::invertArea(22, OLED_MAIN_WIDTH_PIXELS - 44, textPixelY, textPixelY + 8,
+				                                       &image[0]);
+				deluge::hid::display::OLED::setupSideScroller(0, options[currentOption], 22,
+				                                              OLED_MAIN_WIDTH_PIXELS - 22, textPixelY, textPixelY + 8,
+				                                              kTextSpacingX, kTextSpacingY, true);
 			}
-			textPixelY += TEXT_SPACING_Y;
+			textPixelY += kTextSpacingY;
 			i++;
 		}
 		currentOption++;
@@ -116,60 +108,59 @@ void ContextMenu::renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]) {
 
 	currentOption = actualCurrentOption;
 }
-#endif
 
 void ContextMenu::selectEncoderAction(int8_t offset) {
 	const auto [_options, numOptions] = getOptions();
 
-#if HAVE_OLED
-	bool wasOnScrollPos = (currentOption == scrollPos);
-	int oldCurrentOption = currentOption;
-	do {
-		currentOption += offset;
-		if (currentOption >= numOptions || currentOption < 0) {
-			currentOption = oldCurrentOption;
-			return;
-		}
-	} while (!isCurrentOptionAvailable());
-
-	if (currentOption < scrollPos) {
-		scrollPos = currentOption;
-	}
-	else if (offset >= 0 && !wasOnScrollPos) {
-		scrollPos = oldCurrentOption;
-	}
-	renderUIsForOled();
-#else
-
-	do {
-		if (offset >= 0) {
-			currentOption++;
-			if (currentOption >= numOptions) {
-				currentOption -= numOptions;
+	if (display->haveOLED()) {
+		bool wasOnScrollPos = (currentOption == scrollPos);
+		int32_t oldCurrentOption = currentOption;
+		do {
+			currentOption += offset;
+			if (currentOption >= numOptions || currentOption < 0) {
+				currentOption = oldCurrentOption;
+				return;
 			}
-		}
-		else {
-			currentOption--;
-			if (currentOption < 0) {
-				currentOption += numOptions;
-			}
-		}
+		} while (!isCurrentOptionAvailable());
 
-	} while (!isCurrentOptionAvailable());
-	drawCurrentOption();
-#endif
+		if (currentOption < scrollPos) {
+			scrollPos = currentOption;
+		}
+		else if (offset >= 0 && !wasOnScrollPos) {
+			scrollPos = oldCurrentOption;
+		}
+		renderUIsForOled();
+	}
+	else {
+		do {
+			if (offset >= 0) {
+				currentOption++;
+				if (currentOption >= numOptions) {
+					currentOption -= numOptions;
+				}
+			}
+			else {
+				currentOption--;
+				if (currentOption < 0) {
+					currentOption += numOptions;
+				}
+			}
+
+		} while (!isCurrentOptionAvailable());
+		drawCurrentOption();
+	}
 }
 
-int ContextMenu::buttonAction(hid::Button b, bool on, bool inCardRoutine) {
-	using namespace hid::button;
+ActionResult ContextMenu::buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
+	using namespace deluge::hid::button;
 
 	if (b == BACK) {
 		if (on && !currentUIMode) {
 			if (inCardRoutine) {
-				return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 getOut:
-			numericDriver.setNextTransitionDirection(-1);
+			display->setNextTransitionDirection(-1);
 			close();
 		}
 	}
@@ -178,7 +169,7 @@ getOut:
 probablyAcceptCurrentOption:
 		if (on && !currentUIMode) {
 			if (inCardRoutine) {
-				return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 			bool success = acceptCurrentOption();
 			if (!success) {
@@ -192,33 +183,30 @@ probablyAcceptCurrentOption:
 	}
 
 	else {
-		return ACTION_RESULT_NOT_DEALT_WITH;
+		return ActionResult::NOT_DEALT_WITH;
 	}
 
-	return ACTION_RESULT_DEALT_WITH;
+	return ActionResult::DEALT_WITH;
 }
 
 void ContextMenu::drawCurrentOption() {
 	const auto [options, _size] = getOptions();
-
-#if HAVE_OLED
-
-#else
-	indicator_leds::ledBlinkTimeout(0, true);
-	numericDriver.setText(options[currentOption], false, 255, true);
-#endif
+	if (display->have7SEG()) {
+		indicator_leds::ledBlinkTimeout(0, true);
+		display->setText(options[currentOption], false, 255, true);
+	}
 }
 
-int ContextMenu::padAction(int x, int y, int on) {
+ActionResult ContextMenu::padAction(int32_t x, int32_t y, int32_t on) {
 	if (on && !currentUIMode) {
 		if (sdRoutineLock) {
-			return ACTION_RESULT_REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
-		numericDriver.setNextTransitionDirection(-1);
+		display->setNextTransitionDirection(-1);
 		close();
 	}
 
-	return ACTION_RESULT_DEALT_WITH;
+	return ActionResult::DEALT_WITH;
 }
 
 void ContextMenuForSaving::focusRegained() {

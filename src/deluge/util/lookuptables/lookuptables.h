@@ -17,7 +17,10 @@
 
 #pragma once
 
-#include "RZA1/system/r_typedefs.h"
+#include "gui/l10n/strings.h"
+#include "util/lookuptables/lookuptables.h"
+#include <array>
+#include <cstdint>
 
 extern const uint16_t centAdjustTableSmall[];
 extern const uint16_t decayTableSmall4[];
@@ -129,14 +132,14 @@ extern const int16_t windowedSincKernelBasicForWavetableBetweenCycles[];
 
 #define NUM_PRESET_SCALES 7
 extern const uint8_t presetScaleNotes[NUM_PRESET_SCALES][7];
-extern const char* presetScaleNames[];
+extern std::array<char const*, NUM_PRESET_SCALES + 2> presetScaleNames;
 #define PRESET_SCALE_RANDOM 7
 #define PRESET_SCALE_NONE 8
 
 #define NUM_PRESET_REVERBS 3
 const uint8_t presetReverbRoomSize[NUM_PRESET_REVERBS] = {16, 30, 44};
 const uint8_t presetReverbDampening[NUM_PRESET_REVERBS] = {29, 36, 45};
-extern const char* presetReverbNames[];
+extern deluge::l10n::String presetReverbNames[NUM_PRESET_REVERBS];
 
 extern const uint8_t defaultClipGroupColours[];
 

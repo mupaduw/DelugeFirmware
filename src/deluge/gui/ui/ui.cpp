@@ -15,27 +15,25 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "gui/ui/root_ui.h"
+#include "gui/ui/sound_editor.h"
+#include "gui/ui_timer_manager.h"
 #include "gui/views/instrument_clip_view.h"
 #include "gui/views/view.h"
-#include "gui/ui/sound_editor.h"
-#include "hid/matrix/matrix_driver.h"
-#include "gui/ui_timer_manager.h"
-#include "gui/ui/root_ui.h"
-#include "io/debug/print.h"
+#include "hid/display/display.h"
 #include "hid/led/pad_leds.h"
-#include "hid/display/oled.h"
+#include "hid/matrix/matrix_driver.h"
+#include "io/debug/print.h"
 
 extern "C" {
 #include "RZA1/uart/sio_char.h"
 }
 
 UI::UI() {
-#if HAVE_OLED
 	oledShowsUIUnderneath = false;
-#endif
 }
 
-void UI::modEncoderAction(int whichModEncoder, int offset) {
+void UI::modEncoderAction(int32_t whichModEncoder, int32_t offset) {
 	view.modEncoderAction(whichModEncoder, offset);
 }
 
@@ -68,7 +66,7 @@ void getUIGreyoutRowsAndCols(uint32_t* cols, uint32_t* rows) {
 	*cols = 0;
 	*rows = 0;
 
-	for (int u = numUIsOpen - 1; u >= 0; u--) {
+	for (int32_t u = numUIsOpen - 1; u >= 0; u--) {
 		bool useThis = uiNavigationHierarchy[u]->getGreyoutRowsAndCols(cols, rows);
 		if (useThis) {
 			return;
@@ -76,10 +74,10 @@ void getUIGreyoutRowsAndCols(uint32_t* cols, uint32_t* rows) {
 	}
 }
 
-bool changeUIAtLevel(UI* newUI, int level) {
+bool changeUIAtLevel(UI* newUI, int32_t level) {
 	UI* oldUI = getCurrentUI();
 	UI* oldRootUI = uiNavigationHierarchy[level];
-	int oldNumUIs = numUIsOpen;
+	int32_t oldNumUIs = numUIsOpen;
 	uiNavigationHierarchy[level] = newUI;
 	numUIsOpen = level + 1;
 
@@ -96,7 +94,7 @@ bool changeUIAtLevel(UI* newUI, int level) {
 	return success;
 }
 
-// Called when we navigate between "root" UIs, like sessionView, instrumentClipView, etc.
+// Called when we navigate between "root" UIs, like sessionView, instrumentClipView, automationInstrumentClipView, performanceView, etc.
 void changeRootUI(UI* newUI) {
 	uiNavigationHierarchy[0] = newUI;
 	numUIsOpen = 1;
@@ -107,9 +105,9 @@ void changeRootUI(UI* newUI) {
 	PadLEDs::reassessGreyout();
 	newUI->opened(); // These all can't fail, I guess.
 
-#if HAVE_OLED
-	renderUIsForOled();
-#endif
+	if (display->haveOLED()) {
+		renderUIsForOled();
+	}
 }
 
 // Only called when setting up blank song, so don't worry about this
@@ -121,9 +119,9 @@ void setRootUILowLevel(UI* newUI) {
 
 bool changeUISideways(UI* newUI) {
 	bool success = changeUIAtLevel(newUI, numUIsOpen - 1);
-#if HAVE_OLED
-	renderUIsForOled();
-#endif
+	if (display->haveOLED()) {
+		renderUIsForOled();
+	}
 	return success;
 }
 
@@ -156,7 +154,7 @@ void swapOutRootUILowLevel(UI* newUI) {
 	uiNavigationHierarchy[0] = newUI;
 }
 
-UI* getUIUpOneLevel(int numLevelsUp) {
+UI* getUIUpOneLevel(int32_t numLevelsUp) {
 	if (numUIsOpen < (1 + numLevelsUp)) {
 		return NULL;
 	}
@@ -171,7 +169,7 @@ void closeUI(UI* uiToClose) {
 	bool redrawMainPads = false;
 	bool redrawSidebar = false;
 
-	int u;
+	int32_t u;
 	for (u = numUIsOpen - 1; u >= 1; u--) {
 
 		UI* thisUI = uiNavigationHierarchy[u];
@@ -189,9 +187,9 @@ void closeUI(UI* uiToClose) {
 	uiTimerManager.unsetTimer(TIMER_UI_SPECIFIC);
 	PadLEDs::reassessGreyout();
 	newUI->focusRegained();
-#if HAVE_OLED
-	renderUIsForOled();
-#endif
+	if (display->haveOLED()) {
+		renderUIsForOled();
+	}
 
 	bool redrawMainPadsOrig = redrawMainPads;
 	bool redrawSidebarOrig = redrawSidebar;
@@ -233,14 +231,14 @@ bool openUI(UI* newUI) {
 		oldUI
 		    ->focusRegained(); // Or maybe we should instead let the caller deal with this failure, and call this if they wish?
 	}
-#if HAVE_OLED
-	renderUIsForOled();
-#endif
+	if (display->haveOLED()) {
+		renderUIsForOled();
+	}
 	return success;
 }
 
 bool isUIOpen(UI* ui) {
-	for (int u = 0; u < numUIsOpen; u++) {
+	for (int32_t u = 0; u < numUIsOpen; u++) {
 		if (uiNavigationHierarchy[u] == ui) {
 			return true;
 		}
@@ -253,23 +251,21 @@ void nullifyUIs() {
 	numUIsOpen = 0;
 }
 
-#if HAVE_OLED
 void renderUIsForOled() {
-	int u = numUIsOpen - 1;
+	int32_t u = numUIsOpen - 1;
 	while (u && uiNavigationHierarchy[u]->oledShowsUIUnderneath) {
 		u--;
 	}
 
-	OLED::clearMainImage();
+	deluge::hid::display::OLED::clearMainImage();
 
 	for (; u < numUIsOpen; u++) {
-		OLED::stopScrollingAnimation();
-		uiNavigationHierarchy[u]->renderOLED(OLED::oledMainImage);
+		deluge::hid::display::OLED::stopScrollingAnimation();
+		uiNavigationHierarchy[u]->renderOLED(deluge::hid::display::OLED::oledMainImage);
 	}
 
-	OLED::sendMainImage();
+	deluge::hid::display::OLED::sendMainImage();
 }
-#endif
 
 uint32_t whichMainRowsNeedRendering = 0;
 uint32_t whichSideRowsNeedRendering = 0;
@@ -287,7 +283,7 @@ void uiNeedsRendering(UI* ui, uint32_t whichMainRows, uint32_t whichSideRows) {
 
 	// We might be in the middle of an audio routine or something, so just see whether the selected bit of the UI is visible
 
-	for (int u = numUIsOpen - 1; u >= 0; u--) {
+	for (int32_t u = numUIsOpen - 1; u >= 0; u--) {
 		UI* thisUI = uiNavigationHierarchy[u];
 		if (ui == thisUI) {
 			whichMainRowsNeedRendering |= whichMainRows;
@@ -324,7 +320,7 @@ void doAnyPendingUIRendering() {
 		return;
 	}
 
-	if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= (NUM_BYTES_IN_MAIN_PAD_REDRAW + NUM_BYTES_IN_SIDEBAR_REDRAW) * 2) {
+	if (uartGetTxBufferSpace(UART_ITEM_PIC_PADS) <= (kNumBytesInMainPadRedraw + kNumBytesInSidebarRedraw) * 2) {
 		return; // Trialling the *2 to fix flickering when flicking through presets very fast
 	}
 
@@ -337,7 +333,7 @@ void doAnyPendingUIRendering() {
 	// Clear the overall instructions - so it may now be written to again during this function call
 	whichMainRowsNeedRendering = whichSideRowsNeedRendering = 0;
 
-	for (int u = numUIsOpen - 1; u >= 0; u--) {
+	for (int32_t u = numUIsOpen - 1; u >= 0; u--) {
 
 		if (!mainRowsNow && !sideRowsNow) {
 			break;

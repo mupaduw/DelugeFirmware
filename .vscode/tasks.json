@@ -3,62 +3,69 @@
 	"tasks": [
 		{
 			"type": "process",
-			"label": "Build 7SEG Debug",
+			"label": "Build Debug",
 			"command": "./dbt",
 			"windows": {
 				"command": "./dbt.cmd",
 			},
-			"args":["build", "dbt-build-debug-7seg"],
-			"group": { 
+			"args": [
+				"build",
+				"debug"
+			],
+			"group": {
 				"kind": "build",
-				"isDefault": true
+				"isDefault": false
+			},
+			"problemMatcher": {
+				"base": "$gcc",
+				"fileLocation": "absolute"
 			}
 		},
 		{
 			"type": "process",
-			"label": "Build OLED Debug",
+			"label": "Build Release",
 			"command": "./dbt",
 			"windows": {
 				"command": "./dbt.cmd",
 			},
-			"args":["build", "dbt-build-debug-oled"],
-			"group": { 
+			"args": [
+				"build",
+				"release"
+			],
+			"group": {
 				"kind": "build",
 				"isDefault": false
+			},
+			"problemMatcher": {
+				"base": "$gcc",
+				"fileLocation": "absolute"
 			}
 		},
 		{
 			"type": "process",
-			"label": "Build 7SEG Release",
+			"label": "Build RelWithDebInfo",
 			"command": "./dbt",
 			"windows": {
 				"command": "./dbt.cmd",
 			},
-			"args":["build", "dbt-build-release-7seg"],
-			"group": { 
+			"args": [
+				"build",
+				"relwithdebinfo"
+			],
+			"group": {
 				"kind": "build",
 				"isDefault": false
-			}
-		},
-		{
-			"type": "process",
-			"label": "Build OLED Release",
-			"command": "./dbt",
-			"windows": {
-				"command": "./dbt.cmd",
 			},
-			"args":["build", "dbt-build-release-oled"],
-			"group": { 
-				"kind": "build",
-				"isDefault": false
+			"problemMatcher": {
+				"base": "$gcc",
+				"fileLocation": "absolute"
 			}
 		},
-
 		{
 			"type": "process",
 			"label": "Run JLink GDB Server",
 			"problemMatcher": [],
-			"command": "./dbt",	
+			"command": "./dbt",
 			"windows": {
 				"command": "./dbt.cmd",
 			},
@@ -77,6 +84,15 @@
 			},
 			"args": [
 				"debug",
+			]
+		},
+		{
+			"type": "process",
+			"label": "Format source",
+			"problemMatcher": [],
+			"command": "./dbt",
+			"args": [
+				"format",
 			]
 		}
 	]

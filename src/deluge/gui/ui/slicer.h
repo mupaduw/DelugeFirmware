@@ -19,49 +19,49 @@
 
 #include "gui/ui/ui.h"
 #include "hid/button.h"
+#include "hid/display/display.h"
 
 #define SLICER_MODE_REGION 0
 #define SLICER_MODE_MANUAL 1
 #define MAX_MANUAL_SLICES 64
 
 struct SliceItem {
-	int startPos;
-	int transpose;
+	int32_t startPos;
+	int32_t transpose;
 };
 
 class Slicer final : public UI {
 public:
-	Slicer();
+	Slicer() { oledShowsUIUnderneath = true; }
 
 	void focusRegained();
 	bool canSeeViewUnderneath() { return false; }
 	void selectEncoderAction(int8_t offset);
-	int buttonAction(hid::Button b, bool on, bool inCardRoutine);
-	int padAction(int x, int y, int velocity);
+	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine);
+	ActionResult padAction(int32_t x, int32_t y, int32_t velocity);
 
-	bool renderMainPads(uint32_t whichRows, uint8_t image[][displayWidth + sideBarWidth][3],
-	                    uint8_t occupancyMask[][displayWidth + sideBarWidth], bool drawUndefinedArea);
+	bool renderMainPads(uint32_t whichRows, uint8_t image[][kDisplayWidth + kSideBarWidth][3],
+	                    uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth], bool drawUndefinedArea);
 	void graphicsRoutine();
-	int horizontalEncoderAction(int offset);
-	int verticalEncoderAction(int offset, bool inCardRoutine);
+	ActionResult horizontalEncoderAction(int32_t offset);
+	ActionResult verticalEncoderAction(int32_t offset, bool inCardRoutine);
 
 	void stopAnyPreviewing();
-	void preview(int64_t startPoint, int64_t endPoint, int transpose, int on);
+	void preview(int64_t startPoint, int64_t endPoint, int32_t transpose, int32_t on);
 
-	int numManualSlice;
-	int currentSlice;
-	int slicerMode;
+	int32_t numManualSlice;
+	int32_t currentSlice;
+	int32_t slicerMode;
 	SliceItem manualSlicePoints[MAX_MANUAL_SLICES];
 
-#if HAVE_OLED
 	void renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]);
-#endif
+
 	int16_t numClips;
 
 private:
-#if !HAVE_OLED
+	// 7SEG Only
 	void redraw();
-#endif
+
 	void doSlice();
 };
 

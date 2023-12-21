@@ -15,17 +15,18 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "model/clip/instrument_clip.h"
 #include "modulation/params/param_manager.h"
 #include "gui/views/view.h"
-#include "model/song/song.h"
-#include "modulation/params/param_collection.h"
-#include "playback/playback_handler.h"
-#include "model/model_stack.h"
 #include "memory/general_memory_allocator.h"
-#include "modulation/params/param_set.h"
+#include "model/clip/instrument_clip.h"
+#include "model/model_stack.h"
+#include "model/settings/runtime_feature_settings.h"
+#include "model/song/song.h"
 #include "modulation/midi/midi_param_collection.h"
+#include "modulation/params/param_collection.h"
+#include "modulation/params/param_set.h"
 #include "modulation/patch/patch_cable_set.h"
+#include "playback/playback_handler.h"
 #include <new>
 
 ParamManager::ParamManager() {
@@ -47,7 +48,7 @@ ParamManager::~ParamManager() {
 
 #if ALPHA_OR_BETA_VERSION
 ParamManagerForTimeline* ParamManager::toForTimeline() {
-	numericDriver.freezeWithError("E407");
+	FREEZE_WITH_ERROR("E407");
 	return NULL;
 }
 
@@ -56,8 +57,8 @@ ParamManagerForTimeline* ParamManagerForTimeline::toForTimeline() {
 }
 #endif
 
-int ParamManager::setupMIDI() {
-	void* memory = generalMemoryAllocator.alloc(sizeof(MIDIParamCollection), NULL, false, true);
+int32_t ParamManager::setupMIDI() {
+	void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(MIDIParamCollection));
 	if (!memory) {
 		return ERROR_INSUFFICIENT_RAM;
 	}
@@ -69,8 +70,8 @@ int ParamManager::setupMIDI() {
 	return NO_ERROR;
 }
 
-int ParamManager::setupUnpatched() {
-	void* memoryUnpatched = generalMemoryAllocator.alloc(sizeof(UnpatchedParamSet), NULL, false, true);
+int32_t ParamManager::setupUnpatched() {
+	void* memoryUnpatched = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(UnpatchedParamSet));
 	if (!memoryUnpatched) {
 		return ERROR_INSUFFICIENT_RAM;
 	}
@@ -81,22 +82,22 @@ int ParamManager::setupUnpatched() {
 	return NO_ERROR;
 }
 
-int ParamManager::setupWithPatching() {
-	void* memoryUnpatched = generalMemoryAllocator.alloc(sizeof(UnpatchedParamSet), NULL, false, true);
+int32_t ParamManager::setupWithPatching() {
+	void* memoryUnpatched = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(UnpatchedParamSet));
 	if (!memoryUnpatched) {
 		return ERROR_INSUFFICIENT_RAM;
 	}
 
-	void* memoryPatched = generalMemoryAllocator.alloc(sizeof(PatchedParamSet), NULL, false, true);
+	void* memoryPatched = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(PatchedParamSet));
 	if (!memoryPatched) {
 ramError2:
-		generalMemoryAllocator.dealloc(memoryUnpatched);
+		delugeDealloc(memoryUnpatched);
 		return ERROR_INSUFFICIENT_RAM;
 	}
 
-	void* memoryPatchCables = generalMemoryAllocator.alloc(sizeof(PatchCableSet), NULL, false, true);
+	void* memoryPatchCables = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(PatchCableSet));
 	if (!memoryPatchCables) {
-		generalMemoryAllocator.dealloc(memoryPatched);
+		delugeDealloc(memoryPatched);
 		goto ramError2;
 	}
 
@@ -112,13 +113,13 @@ ramError2:
 void ParamManager::stealParamCollectionsFrom(ParamManager* other, bool stealExpressionParams) {
 #if ALPHA_OR_BETA_VERSION
 	if (!other) {
-		numericDriver.freezeWithError("E413");
+		FREEZE_WITH_ERROR("E413");
 	}
 #endif
 
-	int mpeParamsOffsetOther = other->getExpressionParamSetOffset();
-	int mpeParamsOffsetHere = getExpressionParamSetOffset();
-	int stopAtOther = mpeParamsOffsetOther;
+	int32_t mpeParamsOffsetOther = other->getExpressionParamSetOffset();
+	int32_t mpeParamsOffsetHere = getExpressionParamSetOffset();
+	int32_t stopAtOther = mpeParamsOffsetOther;
 
 	// If we're planning to steal expression params, and yes "other" does in fact have them...
 	if (stealExpressionParams && other->summaries[stopAtOther].paramCollection) {
@@ -126,7 +127,7 @@ void ParamManager::stealParamCollectionsFrom(ParamManager* other, bool stealExpr
 		// If "here" has them too, we'll just keep these, and destruct "other"'s ones
 		if (summaries[mpeParamsOffsetHere].paramCollection) {
 			other->summaries[stopAtOther].paramCollection->~ParamCollection();
-			generalMemoryAllocator.dealloc(other->summaries[stopAtOther].paramCollection);
+			delugeDealloc(other->summaries[stopAtOther].paramCollection);
 			other->summaries[stopAtOther] = {0};
 		}
 
@@ -138,7 +139,7 @@ void ParamManager::stealParamCollectionsFrom(ParamManager* other, bool stealExpr
 
 	ParamCollectionSummary hereMpeParamsOrNull = summaries[mpeParamsOffsetHere];
 
-	int i;
+	int32_t i;
 	for (i = 0; i < stopAtOther; i++) {
 		summaries[i] = other->summaries[i];
 	}
@@ -160,12 +161,15 @@ void ParamManager::stealParamCollectionsFrom(ParamManager* other, bool stealExpr
 	other->expressionParamSetOffset = 0;
 }
 
-int ParamManager::cloneParamCollectionsFrom(ParamManager* other, bool copyAutomation, bool cloneExpressionParams,
-                                            int32_t reverseDirectionWithLength) {
+int32_t ParamManager::cloneParamCollectionsFrom(ParamManager* other, bool copyAutomation, bool cloneExpressionParams,
+                                                int32_t reverseDirectionWithLength) {
 
 	ParamCollectionSummary mpeParamsOrNullHere = *getExpressionParamSetSummary();
-	if (mpeParamsOrNullHere.paramCollection) {
-		cloneExpressionParams = false; // If we already have expression params, then just don't clone from "other".
+	// Paul: Prevent MPE data from not getting exchanged with a newly allocated pointer if we allocate the same params for another clip
+	if (this != other) {
+		if (mpeParamsOrNullHere.paramCollection) {
+			cloneExpressionParams = false; // If we already have expression params, then just don't clone from "other".
+		}
 	}
 
 	// First, allocate the memories
@@ -182,16 +186,15 @@ int ParamManager::cloneParamCollectionsFrom(ParamManager* other, bool copyAutoma
 	}
 
 	while (otherSummary != otherStopAt) {
-
-		newSummary->paramCollection = (ParamCollection*)generalMemoryAllocator.alloc(
-		    otherSummary->paramCollection->objectSize, NULL, false,
-		    true); // To cut corners, we store this currently blank/undefined memory in our array of type ParamCollectionSummary
+		// To cut corners, we store this currently blank/undefined memory in our array of type ParamCollectionSummary
+		newSummary->paramCollection =
+		    (ParamCollection*)GeneralMemoryAllocator::get().allocMaxSpeed(otherSummary->paramCollection->objectSize);
 
 		// If that failed, deallocate all the previous memories
 		if (!newSummary->paramCollection) {
 			while (newSummary != newSummaries) {
 				newSummary--;
-				generalMemoryAllocator.dealloc(newSummary->paramCollection);
+				delugeDealloc(newSummary->paramCollection);
 			}
 
 			// Mark that there's nothing here
@@ -220,10 +223,16 @@ int ParamManager::cloneParamCollectionsFrom(ParamManager* other, bool copyAutoma
 		otherSummary++;
 	}
 
-	*newSummary = mpeParamsOrNullHere;
-	if (mpeParamsOrNullHere.paramCollection) { // Check first, otherwise we'll overflow the array, I think...
-		newSummary++;
+	// Paul: If we move allocation position of the same clip mpe data was allocated above and doesn't require special treatment
+	if (this == other) {
 		*newSummary = {0}; // Mark end of list
+	}
+	else {
+		*newSummary = mpeParamsOrNullHere;
+		if (mpeParamsOrNullHere.paramCollection) { // Check first, otherwise we'll overflow the array, I think...
+			newSummary++;
+			*newSummary = {0}; // Mark end of list
+		}
 	}
 
 	// And finally, copy the pointers and flags from newSummaries to our permanent summaries array.
@@ -244,7 +253,7 @@ int ParamManager::cloneParamCollectionsFrom(ParamManager* other, bool copyAutoma
 }
 
 // This is only called once - for NoteRows after cloning an InstrumentClip.
-int ParamManager::beenCloned(int32_t reverseDirectionWithLength) {
+int32_t ParamManager::beenCloned(int32_t reverseDirectionWithLength) {
 	return cloneParamCollectionsFrom(this, true, true, reverseDirectionWithLength); // *Does* clone expression params
 }
 
@@ -265,7 +274,7 @@ void ParamManager::destructAndForgetParamCollections() {
 	ParamCollectionSummary* summary = summaries;
 	while (summary->paramCollection) {
 		summary->paramCollection->~ParamCollection();
-		generalMemoryAllocator.dealloc(summary->paramCollection);
+		delugeDealloc(summary->paramCollection);
 		summary++;
 	}
 
@@ -275,10 +284,10 @@ void ParamManager::destructAndForgetParamCollections() {
 
 // Returns whether there is one / one could be created.
 bool ParamManager::ensureExpressionParamSetExists(bool forDrum) {
-	int offset = getExpressionParamSetOffset();
+	int32_t offset = getExpressionParamSetOffset();
 	if (!summaries[offset].paramCollection) {
 
-		void* memory = generalMemoryAllocator.alloc(sizeof(ExpressionParamSet), NULL, false, true);
+		void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(ExpressionParamSet));
 		if (!memory) {
 			return false;
 		}
@@ -300,7 +309,7 @@ ExpressionParamSet* ParamManager::getOrCreateExpressionParamSet(bool forDrum) {
 ModelStackWithParamCollection* ParamManager::getPatchCableSet(ModelStackWithThreeMainThings const* modelStack) {
 #if ALPHA_OR_BETA_VERSION
 	if (!summaries[2].paramCollection) {
-		numericDriver.freezeWithError("E412");
+		FREEZE_WITH_ERROR("E412");
 	}
 #endif
 	return modelStack->addParamCollection(summaries[2].paramCollection, &summaries[2]);
@@ -315,7 +324,7 @@ ParamManagerForTimeline::ParamManagerForTimeline() {
 void ParamManagerForTimeline::ensureSomeParamCollections() {
 #if ALPHA_OR_BETA_VERSION
 	if (!summaries[0].paramCollection) {
-		numericDriver.freezeWithError("E408");
+		FREEZE_WITH_ERROR("E408");
 	}
 #endif
 }
@@ -349,7 +358,7 @@ void ParamManagerForTimeline::ensureSomeParamCollections() {
 	}
 
 // You'll usually want to call mightContainAutomation() before bothering with this, to save time.
-void ParamManagerForTimeline::processCurrentPos(ModelStackWithThreeMainThings* modelStack, int ticksSinceLast,
+void ParamManagerForTimeline::processCurrentPos(ModelStackWithThreeMainThings* modelStack, int32_t ticksSinceLast,
                                                 bool reversed, bool didPingpong, bool mayInterpolate) {
 
 #if ALPHA_OR_BETA_VERSION
@@ -367,7 +376,7 @@ void ParamManagerForTimeline::processCurrentPos(ModelStackWithThreeMainThings* m
 
 		summary->paramCollection->processCurrentPos(modelStackWithParamCollection, ticksSkipped, reversed, didPingpong,
 		                                            mayInterpolate);
-		ticksTilNextEvent = getMin(ticksTilNextEvent, summary->paramCollection->ticksTilNextEvent);
+		ticksTilNextEvent = std::min(ticksTilNextEvent, summary->paramCollection->ticksTilNextEvent);
 
 		FOR_EACH_AUTOMATED_PARAM_COLLECTION_DEFINITELY_SOME_END
 
@@ -428,7 +437,7 @@ void ParamManagerForTimeline::grabValuesFromPos(uint32_t pos, ModelStackWithThre
 	FOR_EACH_AUTOMATED_PARAM_COLLECTION_DEFINITELY_SOME_END
 }
 
-void ParamManager::notifyParamModifiedInSomeWay(ModelStackWithAutoParam const* modelStack, int currentValueChanged,
+void ParamManager::notifyParamModifiedInSomeWay(ModelStackWithAutoParam const* modelStack, int32_t currentValueChanged,
                                                 bool automationChanged, bool paramAutomatedNow) {
 	if (automationChanged && paramAutomatedNow) {
 		toForTimeline()->expectEvent(modelStack);
@@ -515,7 +524,7 @@ ticksTilNextEvent =
 }
 
 // Note: you must only call this if playbackHandler.isEitherClockActive()
-void ParamManagerForTimeline::tickSamples(int numSamples, ModelStackWithThreeMainThings* modelStack) {
+void ParamManagerForTimeline::tickSamples(int32_t numSamples, ModelStackWithThreeMainThings* modelStack) {
 #if ALPHA_OR_BETA_VERSION
 	ensureSomeParamCollections(); // If you're going to delete this and allow none, make sure you replace the "do" below with its "while".
 #endif
@@ -531,13 +540,13 @@ void ParamManagerForTimeline::tickSamples(int numSamples, ModelStackWithThreeMai
 	} while (summary->paramCollection);
 }
 
-void ParamManagerForTimeline::nudgeAutomationHorizontallyAtPos(int32_t pos, int offset, int32_t lengthBeforeLoop,
+void ParamManagerForTimeline::nudgeAutomationHorizontallyAtPos(int32_t pos, int32_t offset, int32_t lengthBeforeLoop,
                                                                Action* action,
                                                                ModelStackWithThreeMainThings* modelStack,
                                                                int32_t moveMPEDataWithinRegionLength) {
 
 	ParamCollectionSummary* summary = summaries;
-	int i = 0;
+	int32_t i = 0;
 	while (summary->paramCollection) {
 		ModelStackWithParamCollection* modelStackWithParamCollection =
 		    modelStack->addParamCollection(summary->paramCollection, summary);
@@ -551,8 +560,13 @@ void ParamManagerForTimeline::nudgeAutomationHorizontallyAtPos(int32_t pos, int 
 
 		// Normal case
 		else {
-			summary->paramCollection->nudgeNonInterpolatingNodesAtPos(pos, offset, lengthBeforeLoop, action,
-			                                                          modelStackWithParamCollection);
+
+			//if this community feature is on, regular (non MPE) automation will not be nudged when you nudge a note
+			if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::AutomationNudgeNote)
+			    == RuntimeFeatureStateToggle::Off) {
+				summary->paramCollection->nudgeNonInterpolatingNodesAtPos(pos, offset, lengthBeforeLoop, action,
+				                                                          modelStackWithParamCollection);
+			}
 		}
 		summary++;
 		i++;

@@ -19,10 +19,11 @@
 
 #include "memory/memory_region.h"
 
-#define MEMORY_REGION_SDRAM 0
+#define MEMORY_REGION_STEALABLE 0
 #define MEMORY_REGION_INTERNAL 1
-#define NUM_MEMORY_REGIONS 2
-
+#define MEMORY_REGION_EXTERNAL 2
+#define NUM_MEMORY_REGIONS 3
+constexpr uint32_t RESERVED_EXTERNAL_ALLOCATOR = 0x00800000;
 class Stealable;
 
 /*
@@ -58,10 +59,14 @@ class Stealable;
 class GeneralMemoryAllocator {
 public:
 	GeneralMemoryAllocator();
-	void* alloc(uint32_t requiredSize, uint32_t* getAllocatedSize = NULL, bool mayDeleteFirstUndoAction = false,
-	            bool mayUseOnChipRam = false, bool makeStealable = false, void* thingNotToStealFrom = NULL,
-	            bool getBiggestAllocationPossible = false);
+	void* allocMaxSpeed(uint32_t requiredSize, void* thingNotToStealFrom = NULL);
+	void* allocLowSpeed(uint32_t requiredSize, void* thingNotToStealFrom = NULL);
+	void* allocStealable(uint32_t requiredSize, void* thingNotToStealFrom = NULL);
+
+	void* alloc(uint32_t requiredSize, bool mayUseOnChipRam, bool makeStealable, void* thingNotToStealFrom);
 	void dealloc(void* address);
+	void* allocExternal(uint32_t requiredSize);
+	void deallocExternal(void* address);
 	uint32_t shortenRight(void* address, uint32_t newSize);
 	uint32_t shortenLeft(void* address, uint32_t amountToShorten, uint32_t numBytesToMoveRightIfSuccessful = 0);
 	void extend(void* address, uint32_t minAmountToExtend, uint32_t idealAmountToExtend,
@@ -70,19 +75,27 @@ public:
 	void test();
 	uint32_t getAllocatedSize(void* address);
 	void checkStack(char const* caller);
-	void testShorten(int i);
-	int getRegion(void* address);
+	void testShorten(int32_t i);
+	int32_t getRegion(void* address);
 	void testMemoryDeallocated(void* address);
 
-	void putStealableInQueue(Stealable* stealable, int q);
+	void putStealableInQueue(Stealable* stealable, int32_t q);
 	void putStealableInAppropriateQueue(Stealable* stealable);
 
 	MemoryRegion regions[NUM_MEMORY_REGIONS];
 
 	bool lock;
 
+	static GeneralMemoryAllocator& get() {
+		static GeneralMemoryAllocator generalMemoryAllocator;
+		return generalMemoryAllocator;
+	}
+
 private:
 	void checkEverythingOk(char const* errorString);
 };
 
-extern GeneralMemoryAllocator generalMemoryAllocator;
+extern "C" {
+void* delugeAlloc(unsigned int requiredSize, bool mayUseOnChipRam = true);
+void delugeDealloc(void* address);
+}

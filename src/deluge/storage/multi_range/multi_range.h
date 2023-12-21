@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "definitions.h"
+#include "definitions_cxx.hpp"
 
 class AudioFileHolder;
 
@@ -26,7 +26,7 @@ public:
 	MultiRange();
 	virtual ~MultiRange();
 
-	AudioFileHolder* getAudioFileHolder();
+	virtual AudioFileHolder* getAudioFileHolder() = 0;
 
 	int16_t topNote;
 };

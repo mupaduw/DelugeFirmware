@@ -15,11 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include "processing/engines/audio_engine.h"
 #include "dsp/delay/delay_buffer.h"
 #include "dsp/stereo_sample.h"
-#include "util/functions.h"
 #include "memory/general_memory_allocator.h"
+#include "processing/engines/audio_engine.h"
+#include "util/functions.h"
 #include <string.h>
 
 DelayBuffer::DelayBuffer() {
@@ -63,8 +63,7 @@ uint8_t DelayBuffer::init(uint32_t newRate, uint32_t failIfThisSize, bool includ
 	sizeIncludingExtra = size + (includeExtraSpace ? delaySpaceBetweenReadAndWrite : 0);
 	AudioEngine::logAction("DelayBuffer::init before");
 
-	bufferStart =
-	    (StereoSample*)generalMemoryAllocator.alloc(sizeIncludingExtra * sizeof(StereoSample), NULL, false, true);
+	bufferStart = (StereoSample*)GeneralMemoryAllocator::get().allocLowSpeed(sizeIncludingExtra * sizeof(StereoSample));
 	AudioEngine::logAction("DelayBuffer::init after");
 	if (bufferStart == 0) {
 		return ERROR_INSUFFICIENT_RAM;
@@ -97,7 +96,7 @@ void DelayBuffer::makeNativeRatePreciseRelativeToOtherBuffer(DelayBuffer* otherB
 
 void DelayBuffer::discard(bool beingDestructed) {
 	if (bufferStart) {
-		generalMemoryAllocator.dealloc(bufferStart);
+		delugeDealloc(bufferStart);
 		if (!beingDestructed) {
 			bufferStart = NULL; // If destructing, writing anything would be a waste of time
 		}
@@ -134,8 +133,10 @@ void DelayBuffer::setupForRender(int32_t userDelayRate, DelayBufferSetup* setup)
 
 	if (isResampling) {
 
-		setup->actualSpinRate = ((uint64_t)userDelayRate << 24) / nativeRate; // 1 is represented as 16777216
-		setup->divideByRate = 0xFFFFFFFF / (setup->actualSpinRate >> 8);      // 1 is represented as 65536
+		setup->actualSpinRate =
+		    (uint64_t)((double)((uint64_t)userDelayRate << 24) / (double)nativeRate); // 1 is represented as 16777216
+		setup->divideByRate =
+		    (uint32_t)((double)0xFFFFFFFF / (double)(setup->actualSpinRate >> 8)); // 1 is represented as 65536
 
 		// If buffer spinning slow
 		if (setup->actualSpinRate < 16777216) {
@@ -150,9 +151,10 @@ void DelayBuffer::setupForRender(int32_t userDelayRate, DelayBufferSetup* setup)
 			// because more of that means more "triangle area", or more stuff written each time.
 			//uint32_t delayWriteSizeAdjustment2 = (((uint32_t)delay.speed << 16) / (((uint32_t)(speedMultiple >> 2) * (uint32_t)(speedMultiple >> 2)) >> 11));
 			setup->writeSizeAdjustment =
-			    (uint32_t)0xFFFFFFFF
-			    / (setup->rateMultiple
-			       * (timesSlowerRead + 1)); // Equivalent to one order of magnitude bigger than the above line
+			    (uint32_t)((double)0xFFFFFFFF
+			               / (double)(setup->rateMultiple
+			                          * (timesSlowerRead
+			                             + 1))); // Equivalent to one order of magnitude bigger than the above line
 		}
 
 		// If buffer spinning fast
@@ -160,7 +162,7 @@ void DelayBuffer::setupForRender(int32_t userDelayRate, DelayBufferSetup* setup)
 
 			// First, let's limit sped up writing to only work perfectly up to 8x speed, for safety (writing faster takes longer).
 			// No need to adjust divideByRate to compensate - it's going to sound shoddy anyway
-			setup->spinRateForSpedUpWriting = getMin(setup->actualSpinRate, (int32_t)16777216 * 8);
+			setup->spinRateForSpedUpWriting = std::min(setup->actualSpinRate, (int32_t)16777216 * 8);
 
 			// We want to squirt the most juice right at the "main" write pos - but we want to spread it wider too.
 			// A basic version of this would involve the triangle's base being as wide as 2 samples if we were writing at the native sample rate.

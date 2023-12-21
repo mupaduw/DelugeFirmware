@@ -15,22 +15,22 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include "gui/context_menu/clear_song.h"
+#include "extern.h"
+#include "gui/l10n/l10n.h"
+#include "gui/views/view.h"
+#include "hid/display/display.h"
+#include "hid/led/indicator_leds.h"
+#include "memory/general_memory_allocator.h"
+#include "model/action/action_logger.h"
+#include "model/song/song.h"
+#include "modulation/params/param_manager.h"
+#include "playback/mode/arrangement.h"
+#include "playback/mode/session.h"
+#include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
 #include "storage/audio/audio_file_manager.h"
-#include "gui/context_menu/clear_song.h"
-#include "modulation/params/param_manager.h"
-#include "hid/display/numeric_driver.h"
-#include "memory/general_memory_allocator.h"
-#include "gui/views/view.h"
-#include "playback/mode/session.h"
-#include "playback/mode/arrangement.h"
-#include "model/action/action_logger.h"
 #include <new>
-#include "model/song/song.h"
-#include "hid/led/indicator_leds.h"
-#include "extern.h"
-#include "playback/playback_handler.h"
-#include "hid/display/oled.h"
 
 extern void setUIForLoadedSong(Song* song);
 extern void deleteOldSongBeforeLoadingNew();
@@ -38,17 +38,20 @@ namespace deluge::gui::context_menu {
 ClearSong clearSong{};
 
 char const* ClearSong::getTitle() {
-	static char const* title = "Clear song?";
-	return title;
+	using enum l10n::String;
+	return l10n::get(STRING_FOR_CLEAR_SONG_QMARK);
 }
 
 Sized<char const**> ClearSong::getOptions() {
-#if HAVE_OLED
-	static char const* options[] = {"Ok"};
-#else
-	static char const* options[] = {"New"};
-#endif
-	return {options, 1};
+	using enum l10n::String;
+	if (display->haveOLED()) {
+		static char const* options[] = {l10n::get(STRING_FOR_OK)};
+		return {options, 1};
+	}
+	else {
+		static char const* options[] = {l10n::get(STRING_FOR_NEW)};
+		return {options, 1};
+	}
 }
 
 void ClearSong::focusRegained() {
@@ -86,7 +89,7 @@ bool ClearSong::acceptCurrentOption() {
 		AudioEngine::songSwapAboutToHappen();
 	}
 
-	void* songMemory = generalMemoryAllocator.alloc(sizeof(Song), NULL, false, true); // TODO: error checking
+	void* songMemory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(Song)); // TODO: error checking
 	preLoadedSong = new (songMemory) Song();
 	preLoadedSong->paramManager.setupUnpatched(); // TODO: error checking
 	GlobalEffectable::initParams(&preLoadedSong->paramManager);
@@ -100,7 +103,7 @@ bool ClearSong::acceptCurrentOption() {
 	if (toDelete) {
 		void* toDealloc = dynamic_cast<void*>(toDelete);
 		toDelete->~Song();
-		generalMemoryAllocator.dealloc(toDealloc);
+		delugeDealloc(toDealloc);
 	}
 
 	audioFileManager.deleteAnyTempRecordedSamplesFromMemory();
@@ -111,9 +114,7 @@ bool ClearSong::acceptCurrentOption() {
 	setUIForLoadedSong(currentSong);
 	currentUIMode = UI_MODE_NONE;
 
-#if HAVE_OLED
-	OLED::removeWorkingAnimation();
-#endif
+	display->removeWorkingAnimation();
 
 	return true;
 }

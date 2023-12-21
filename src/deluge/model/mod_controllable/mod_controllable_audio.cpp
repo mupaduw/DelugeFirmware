@@ -15,28 +15,31 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "processing/engines/audio_engine.h"
-#include "modulation/params/param_manager.h"
-#include "processing/sound/sound.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
-#include "storage/storage_manager.h"
-#include "hid/display/numeric_driver.h"
-#include "storage/storage_manager.h"
-#include <string.h>
+#include "definitions_cxx.hpp"
+#include "deluge/model/settings/runtime_feature_settings.h"
+#include "gui/l10n/l10n.h"
 #include "gui/views/session_view.h"
-#include "playback/playback_handler.h"
-#include "io/debug/print.h"
-#include "memory/general_memory_allocator.h"
 #include "gui/views/view.h"
-#include "model/timeline_counter.h"
-#include "model/song/song.h"
-#include "model/model_stack.h"
+#include "hid/display/display.h"
+#include "io/debug/print.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_engine.h"
+#include "memory/general_memory_allocator.h"
 #include "model/clip/instrument_clip.h"
+#include "model/model_stack.h"
 #include "model/note/note_row.h"
+#include "model/song/song.h"
+#include "model/timeline_counter.h"
+#include "modulation/params/param_manager.h"
 #include "modulation/params/param_set.h"
-
+#include "playback/playback_handler.h"
+#include "processing/engines/audio_engine.h"
+#include "processing/sound/sound.h"
+#include "storage/storage_manager.h"
+#include "util/fast_fixed_math.h"
+#include "util/misc.h"
+#include <string.h>
 extern "C" {}
 
 extern int32_t spareRenderingBuffer[][SSI_TX_BUFFER_NUM_SAMPLES];
@@ -47,6 +50,23 @@ ModControllableAudio::ModControllableAudio() {
 	modFXBuffer = NULL;
 	modFXBufferWriteIndex = 0;
 
+	//Grain
+	modFXGrainBuffer = NULL;
+	wrapsToShutdown = 0;
+	modFXGrainBufferWriteIndex = 0;
+	grainShift = 13230; // 300ms
+	grainSize = 13230;  // 300ms
+	grainRate = 1260;   // 35hz
+	grainFeedbackVol = 161061273;
+	for (int i = 0; i < 8; i++) {
+		grains[i].length = 0;
+	}
+	grainVol = 0;
+	grainDryVol = 2147483647;
+	grainPitchType = 0;
+	grainLastTickCountIsZero = true;
+	grainInitialized = false;
+
 	// EQ
 	withoutTrebleL = 0;
 	bassOnlyL = 0;
@@ -56,6 +76,9 @@ ModControllableAudio::ModControllableAudio() {
 	// Stutter
 	stutterer.sync = 7;
 	stutterer.status = STUTTERER_STATUS_OFF;
+	lpfMode = FilterMode::TRANSISTOR_24DB;
+	hpfMode = FilterMode::HPLADDER;
+	filterRoute = FilterRoute::HIGH_TO_LOW;
 
 	// Sample rate reduction
 	sampleRateReductionOnLastTime = false;
@@ -69,16 +92,21 @@ ModControllableAudio::~ModControllableAudio() {
 
 	// Free the mod fx memory
 	if (modFXBuffer) {
-		generalMemoryAllocator.dealloc(modFXBuffer);
+		delugeDealloc(modFXBuffer);
+	}
+	if (modFXGrainBuffer) {
+		delugeDealloc(modFXGrainBuffer);
 	}
 }
 
 void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	lpfMode = other->lpfMode;
+	hpfMode = other->hpfMode;
 	clippingAmount = other->clippingAmount;
 	modFXType = other->modFXType;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
 	trebleFreq = other->trebleFreq;
+	filterRoute = other->filterRoute;
 	compressor.cloneFrom(&other->compressor);
 	midiKnobArray.cloneFrom(&other->midiKnobArray); // Could fail if no RAM... not too big a concern
 	delay.cloneFrom(&other->delay);
@@ -88,51 +116,68 @@ void ModControllableAudio::initParams(ParamManager* paramManager) {
 
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
-	unpatchedParams->params[PARAM_UNPATCHED_BASS].setCurrentValueBasicForSetup(0);
-	unpatchedParams->params[PARAM_UNPATCHED_TREBLE].setCurrentValueBasicForSetup(0);
-	unpatchedParams->params[PARAM_UNPATCHED_BASS_FREQ].setCurrentValueBasicForSetup(0);
-	unpatchedParams->params[PARAM_UNPATCHED_TREBLE_FREQ].setCurrentValueBasicForSetup(0);
+	unpatchedParams->params[Param::Unpatched::BASS].setCurrentValueBasicForSetup(0);
+	unpatchedParams->params[Param::Unpatched::TREBLE].setCurrentValueBasicForSetup(0);
+	unpatchedParams->params[Param::Unpatched::BASS_FREQ].setCurrentValueBasicForSetup(0);
+	unpatchedParams->params[Param::Unpatched::TREBLE_FREQ].setCurrentValueBasicForSetup(0);
 
-	unpatchedParams->params[PARAM_UNPATCHED_STUTTER_RATE].setCurrentValueBasicForSetup(0);
+	unpatchedParams->params[Param::Unpatched::STUTTER_RATE].setCurrentValueBasicForSetup(0);
 
-	unpatchedParams->params[PARAM_UNPATCHED_MOD_FX_OFFSET].setCurrentValueBasicForSetup(0);
+	unpatchedParams->params[Param::Unpatched::MOD_FX_OFFSET].setCurrentValueBasicForSetup(0);
 
-	unpatchedParams->params[PARAM_UNPATCHED_SAMPLE_RATE_REDUCTION].setCurrentValueBasicForSetup(-2147483648);
+	unpatchedParams->params[Param::Unpatched::SAMPLE_RATE_REDUCTION].setCurrentValueBasicForSetup(-2147483648);
 
-	unpatchedParams->params[PARAM_UNPATCHED_BITCRUSHING].setCurrentValueBasicForSetup(-2147483648);
+	unpatchedParams->params[Param::Unpatched::BITCRUSHING].setCurrentValueBasicForSetup(-2147483648);
 
-	unpatchedParams->params[PARAM_UNPATCHED_COMPRESSOR_SHAPE].setCurrentValueBasicForSetup(-601295438);
+	unpatchedParams->params[Param::Unpatched::COMPRESSOR_SHAPE].setCurrentValueBasicForSetup(-601295438);
 }
 
 bool ModControllableAudio::hasBassAdjusted(ParamManager* paramManager) {
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
-	return (unpatchedParams->getValue(PARAM_UNPATCHED_BASS) != 0);
+	return (unpatchedParams->getValue(Param::Unpatched::BASS) != 0);
 }
 
 bool ModControllableAudio::hasTrebleAdjusted(ParamManager* paramManager) {
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
-	return (unpatchedParams->getValue(PARAM_UNPATCHED_TREBLE) != 0);
+	return (unpatchedParams->getValue(Param::Unpatched::TREBLE) != 0);
 }
 
-void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int modFXType, int32_t modFXRate,
+void ModControllableAudio::setWrapsToShutdown() {
+
+	if (grainFeedbackVol < 33554432) {
+		wrapsToShutdown = 1;
+	}
+	else if (grainFeedbackVol <= 100663296) {
+		wrapsToShutdown = 2;
+	}
+	else if (grainFeedbackVol <= 218103808) {
+		wrapsToShutdown = 3;
+	}
+	//max possible, feedback doesn't go very high
+	else {
+		wrapsToShutdown = 4;
+	}
+}
+
+void ModControllableAudio::processFX(StereoSample* buffer, int32_t numSamples, ModFXType modFXType, int32_t modFXRate,
                                      int32_t modFXDepth, DelayWorkingState* delayWorkingState, int32_t* postFXVolume,
-                                     ParamManager* paramManager, int analogDelaySaturationAmount) {
+                                     ParamManager* paramManager, int32_t analogDelaySaturationAmount) {
 
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
 	StereoSample* bufferEnd = buffer + numSamples;
 
 	// Mod FX -----------------------------------------------------------------------------------
-	if (modFXType != MOD_FX_TYPE_NONE) {
+	if (modFXType != ModFXType::NONE) {
 
-		int modFXLFOWaveType;
-		int modFXDelayOffset;
-		int thisModFXDelayDepth;
+		LFOType modFXLFOWaveType;
+		int32_t modFXDelayOffset;
+		int32_t thisModFXDelayDepth;
 		int32_t feedback;
 
-		if (modFXType == MOD_FX_TYPE_FLANGER || modFXType == MOD_FX_TYPE_PHASER) {
+		if (modFXType == ModFXType::FLANGER || modFXType == ModFXType::PHASER) {
 
-			int32_t a = unpatchedParams->getValue(PARAM_UNPATCHED_MOD_FX_FEEDBACK) >> 1;
+			int32_t a = unpatchedParams->getValue(Param::Unpatched::MOD_FX_FEEDBACK) >> 1;
 			int32_t b = 2147483647 - ((a + 1073741824) >> 2) * 3;
 			int32_t c = multiply_32x32_rshift32(b, b);
 			int32_t d = multiply_32x32_rshift32(b, c);
@@ -147,26 +192,79 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 			           * 23; // 22 // Make bigger to have more of a volume cut happen at high resonance
 			//*postFXVolume = (multiply_32x32_rshift32(*postFXVolume, 2147483647 - squared2) >> 1) * 3;
 			*postFXVolume = multiply_32x32_rshift32(*postFXVolume, 2147483647 - squared2);
-			if (modFXType == MOD_FX_TYPE_FLANGER) {
+			if (modFXType == ModFXType::FLANGER) {
 				*postFXVolume <<= 1;
 			}
 			// Though, this would be more ideally placed affecting volume before the flanger
 
-			if (modFXType == MOD_FX_TYPE_FLANGER) {
-				modFXDelayOffset = flangerOffset;
-				thisModFXDelayDepth = flangerAmplitude;
-				modFXLFOWaveType = OSC_TYPE_TRIANGLE;
+			if (modFXType == ModFXType::FLANGER) {
+				modFXDelayOffset = kFlangerOffset;
+				thisModFXDelayDepth = kFlangerAmplitude;
+				modFXLFOWaveType = LFOType::TRIANGLE;
 			}
 			else { // Phaser
-				modFXLFOWaveType = OSC_TYPE_SINE;
+				modFXLFOWaveType = LFOType::SINE;
 			}
 		}
-		else if (modFXType == MOD_FX_TYPE_CHORUS || modFXType == MOD_FX_TYPE_CHORUS_STEREO) {
+		else if (modFXType == ModFXType::CHORUS || modFXType == ModFXType::CHORUS_STEREO) {
 			modFXDelayOffset = multiply_32x32_rshift32(
-			    modFXMaxDelay, (unpatchedParams->getValue(PARAM_UNPATCHED_MOD_FX_OFFSET) >> 1) + 1073741824);
+			    kModFXMaxDelay, (unpatchedParams->getValue(Param::Unpatched::MOD_FX_OFFSET) >> 1) + 1073741824);
 			thisModFXDelayDepth = multiply_32x32_rshift32(modFXDelayOffset, modFXDepth) << 2;
-			modFXLFOWaveType = OSC_TYPE_SINE;
+			modFXLFOWaveType = LFOType::SINE;
 			*postFXVolume = multiply_32x32_rshift32(*postFXVolume, 1518500250) << 1; // Divide by sqrt(2)
+		}
+		else if (modFXType == ModFXType::GRAIN) {
+			AudioEngine::logAction("grain start");
+			if (!grainInitialized && modFXGrainBufferWriteIndex >= 65536) {
+				grainInitialized = true;
+			}
+			*postFXVolume = multiply_32x32_rshift32(*postFXVolume, ONE_OVER_SQRT2_Q31) << 1; // Divide by sqrt(2)
+			// Shift
+			grainShift = 44 * 300; //(kSampleRate / 1000) * 300;
+			// Size
+			grainSize = 44 * ((((unpatchedParams->getValue(Param::Unpatched::MOD_FX_OFFSET) >> 1) + 1073741824) >> 21));
+			grainSize = std::clamp<int32_t>(grainSize, 440, 35280); //10ms - 800ms
+			// Rate
+			int32_t grainRateRaw = std::clamp<int32_t>((quickLog(modFXRate) - 364249088) >> 21, 0, 256);
+			grainRate = ((360 * grainRateRaw >> 8) * grainRateRaw >> 8); //0 - 180hz
+			grainRate = std::max<int32_t>(1, grainRate);
+			grainRate = (kSampleRate << 1) / grainRate;
+			// Preset 0=default
+			grainPitchType = (int8_t)(multiply_32x32_rshift32_rounded(
+			    unpatchedParams->getValue(Param::Unpatched::MOD_FX_FEEDBACK), 5)); //Select 5 presets -2 to 2
+			grainPitchType = std::clamp<int8_t>(grainPitchType, -2, 2);
+			// Temposync
+			if (grainPitchType == 2) {
+				int tempoBPM = (int32_t)(playbackHandler.calculateBPM(currentSong->getTimePerTimerTickFloat()) + 0.5);
+				grainRate = std::clamp<int32_t>(256 - grainRateRaw, 0, 256) << 4; //4096msec
+				grainRate = 44 * grainRate;                                       //(kSampleRate*grainRate)/1000;
+				int32_t baseNoteSamples = (kSampleRate * 60 / tempoBPM);          //4th
+				if (grainRate < baseNoteSamples) {
+					baseNoteSamples = baseNoteSamples >> 2; //16th
+				}
+				grainRate = std::clamp<int32_t>((grainRate / baseNoteSamples) * baseNoteSamples, baseNoteSamples,
+				                                baseNoteSamples << 2);            //Quantize
+				if (grainRate < 2205) {                                           //50ms = 20hz
+					grainSize = std::min<int32_t>(grainSize, grainRate << 3) - 1; //16 layers=<<4, 8layers = <<3
+				}
+				bool currentTickCountIsZero = (playbackHandler.getCurrentInternalTickCount() == 0);
+				if (grainLastTickCountIsZero && currentTickCountIsZero == false) { //Start Playback
+					modFXGrainBufferWriteIndex = 0;                                //Reset WriteIndex
+				}
+				grainLastTickCountIsZero = currentTickCountIsZero;
+			}
+			// Rate Adjustment
+			if (grainRate < 882) {                                            //50hz or more
+				grainSize = std::min<int32_t>(grainSize, grainRate << 3) - 1; //16 layers=<<4, 8layers = <<3
+			}
+			// Volume
+			grainVol = modFXDepth - 2147483648;
+			grainVol =
+			    (multiply_32x32_rshift32_rounded(multiply_32x32_rshift32_rounded(grainVol, grainVol), grainVol) << 2)
+			    + 2147483648; //Cubic
+			grainVol = std::max<int32_t>(0, std::min<int32_t>(2147483647, grainVol));
+			grainDryVol = (int32_t)std::clamp<int64_t>(((int64_t)(2147483648 - grainVol) << 3), 0, 2147483647);
+			grainFeedbackVol = grainVol >> 3;
 		}
 
 		StereoSample* currentSample = buffer;
@@ -174,7 +272,7 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 
 			int32_t lfoOutput = modFXLFO.render(1, modFXLFOWaveType, modFXRate);
 
-			if (modFXType == MOD_FX_TYPE_PHASER) {
+			if (modFXType == ModFXType::PHASER) {
 
 				// "1" is sorta represented by 1073741824 here
 				int32_t _a1 =
@@ -185,18 +283,166 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 				phaserMemory.r = currentSample->r + (multiply_32x32_rshift32_rounded(phaserMemory.r, feedback) << 1);
 
 				// Do the allpass filters
-				for (int i = 0; i < PHASER_NUM_ALLPASS_FILTERS; i++) {
+				for (auto& sample : allpassMemory) {
 					StereoSample whatWasInput = phaserMemory;
 
-					phaserMemory.l = (multiply_32x32_rshift32_rounded(phaserMemory.l, -_a1) << 2) + allpassMemory[i].l;
-					allpassMemory[i].l = (multiply_32x32_rshift32_rounded(phaserMemory.l, _a1) << 2) + whatWasInput.l;
+					phaserMemory.l = (multiply_32x32_rshift32_rounded(phaserMemory.l, -_a1) << 2) + sample.l;
+					sample.l = (multiply_32x32_rshift32_rounded(phaserMemory.l, _a1) << 2) + whatWasInput.l;
 
-					phaserMemory.r = (multiply_32x32_rshift32_rounded(phaserMemory.r, -_a1) << 2) + allpassMemory[i].r;
-					allpassMemory[i].r = (multiply_32x32_rshift32_rounded(phaserMemory.r, _a1) << 2) + whatWasInput.r;
+					phaserMemory.r = (multiply_32x32_rshift32_rounded(phaserMemory.r, -_a1) << 2) + sample.r;
+					sample.r = (multiply_32x32_rshift32_rounded(phaserMemory.r, _a1) << 2) + whatWasInput.r;
 				}
 
 				currentSample->l += phaserMemory.l;
 				currentSample->r += phaserMemory.r;
+			}
+			else if (modFXType == ModFXType::GRAIN && modFXGrainBuffer) {
+				if (modFXGrainBufferWriteIndex >= kModFXGrainBufferSize) {
+					modFXGrainBufferWriteIndex = 0;
+					wrapsToShutdown -= 1;
+				}
+				int32_t writeIndex = modFXGrainBufferWriteIndex; // % kModFXGrainBufferSize
+				if (modFXGrainBufferWriteIndex % grainRate == 0) {
+					for (int32_t i = 0; i < 8; i++) {
+						if (grains[i].length <= 0) {
+							grains[i].length = grainSize;
+							int32_t spray = random(kModFXGrainBufferSize >> 1) - (kModFXGrainBufferSize >> 2);
+							grains[i].startPoint =
+							    (modFXGrainBufferWriteIndex + kModFXGrainBufferSize - grainShift + spray)
+							    & kModFXGrainBufferIndexMask;
+							grains[i].counter = 0;
+							grains[i].rev = (getRandom255() < 76);
+
+							int32_t pitchRand = getRandom255();
+							switch (grainPitchType) {
+							case -2:
+								grains[i].pitch = (pitchRand < 76) ? 2048 : 1024; //unison + octave + reverse
+								grains[i].rev = 1;
+								break;
+							case -1:
+								grains[i].pitch = (pitchRand < 76) ? 512 : 1024; //unison + octave lower
+								break;
+							case 0:
+								grains[i].pitch = (pitchRand < 76) ? 2048 : 1024; //unison + octave (default)
+								break;
+							case 1:
+								grains[i].pitch = (pitchRand < 76) ? 1534 : 2048; //5th + octave
+								break;
+							case 2:
+								grains[i].pitch = (pitchRand < 25)    ? 512
+								                  : (pitchRand < 153) ? 2048
+								                                      : 1024; // unison + octave + octave lower
+								break;
+							}
+							if (grains[i].rev) {
+								grains[i].startPoint =
+								    (writeIndex + kModFXGrainBufferSize - 1) & kModFXGrainBufferIndexMask;
+								grains[i].length =
+								    (grains[i].pitch > 1024)
+								        ? std::min<int32_t>(grains[i].length, 21659)  // Buffer length*0.3305
+								        : std::min<int32_t>(grains[i].length, 30251); // 1.48s - 0.8s
+							}
+							else {
+								if (grains[i].pitch > 1024) {
+									int32_t startPointMax =
+									    (writeIndex + grains[i].length - ((grains[i].length * grains[i].pitch) >> 10)
+									     + kModFXGrainBufferSize)
+									    & kModFXGrainBufferIndexMask;
+									if (!(grains[i].startPoint < startPointMax && grains[i].startPoint > writeIndex)) {
+										grains[i].startPoint =
+										    (startPointMax + kModFXGrainBufferSize - 1) & kModFXGrainBufferIndexMask;
+									}
+								}
+								else if (grains[i].pitch < 1024) {
+									int32_t startPointMax =
+									    (writeIndex + grains[i].length - ((grains[i].length * grains[i].pitch) >> 10)
+									     + kModFXGrainBufferSize)
+									    & kModFXGrainBufferIndexMask;
+
+									if (!(grains[i].startPoint > startPointMax && grains[i].startPoint < writeIndex)) {
+										grains[i].startPoint =
+										    (writeIndex + kModFXGrainBufferSize - 1) & kModFXGrainBufferIndexMask;
+									}
+								}
+							}
+							if (!grainInitialized) {
+								if (!grains[i].rev) { //forward
+									grains[i].pitch = 1024;
+									if (modFXGrainBufferWriteIndex > 13231) {
+										int32_t newStartPoint =
+										    std::max<int32_t>(440, random(modFXGrainBufferWriteIndex - 2));
+										grains[i].startPoint = (writeIndex - newStartPoint + kModFXGrainBufferSize)
+										                       & kModFXGrainBufferIndexMask;
+									}
+									else {
+										grains[i].length = 0;
+									}
+								}
+								else {
+									grains[i].pitch = std::min<int32_t>(grains[i].pitch, 1024);
+									if (modFXGrainBufferWriteIndex > 13231) {
+										grains[i].length =
+										    std::min<int32_t>(grains[i].length, modFXGrainBufferWriteIndex - 2);
+										grains[i].startPoint =
+										    (writeIndex - 1 + kModFXGrainBufferSize) & kModFXGrainBufferIndexMask;
+									}
+									else {
+										grains[i].length = 0;
+									}
+								}
+							}
+							if (grains[i].length > 0) {
+								grains[i].volScale = (2147483647 / (grains[i].length >> 1));
+								grains[i].volScaleMax = grains[i].volScale * (grains[i].length >> 1);
+								shouldDoPanning((getRandom255() - 128) << 23, &grains[i].panVolL,
+								                &grains[i].panVolR); //Pan Law 0
+							}
+							break;
+						}
+					}
+				}
+
+				int32_t grains_l = 0;
+				int32_t grains_r = 0;
+				for (int32_t i = 0; i < 8; i++) {
+					if (grains[i].length > 0) {
+						//triangle window
+						int32_t vol = grains[i].counter <= (grains[i].length >> 1)
+						                  ? grains[i].counter * grains[i].volScale
+						                  : grains[i].volScaleMax
+						                        - (grains[i].counter - (grains[i].length >> 1)) * grains[i].volScale;
+						int32_t delta = grains[i].counter * (grains[i].rev == 1 ? -1 : 1);
+						if (grains[i].pitch != 1024) {
+							delta = ((delta * grains[i].pitch) >> 10);
+						}
+						int32_t pos =
+						    (grains[i].startPoint + delta + kModFXGrainBufferSize) & kModFXGrainBufferIndexMask;
+
+						grains_l = multiply_accumulate_32x32_rshift32_rounded(
+						    grains_l, multiply_32x32_rshift32(modFXGrainBuffer[pos].l, vol) << 0, grains[i].panVolL);
+						grains_r = multiply_accumulate_32x32_rshift32_rounded(
+						    grains_r, multiply_32x32_rshift32(modFXGrainBuffer[pos].r, vol) << 0, grains[i].panVolR);
+
+						grains[i].counter++;
+						if (grains[i].counter >= grains[i].length) {
+							grains[i].length = 0;
+						}
+					}
+				}
+
+				grains_l <<= 3;
+				grains_r <<= 3;
+				//Feedback (Below grainFeedbackVol means "grainVol >> 4")
+				modFXGrainBuffer[writeIndex].l =
+				    multiply_accumulate_32x32_rshift32_rounded(currentSample->l, grains_l, grainFeedbackVol);
+				modFXGrainBuffer[writeIndex].r =
+				    multiply_accumulate_32x32_rshift32_rounded(currentSample->r, grains_r, grainFeedbackVol);
+				//WET and DRY Vol
+				currentSample->l = add_saturation(multiply_32x32_rshift32(currentSample->l, grainDryVol) << 1,
+				                                  multiply_32x32_rshift32(grains_l, grainVol) << 1);
+				currentSample->r = add_saturation(multiply_32x32_rshift32(currentSample->r, grainDryVol) << 1,
+				                                  multiply_32x32_rshift32(grains_r, grainVol) << 1);
+				modFXGrainBufferWriteIndex++;
 			}
 			else {
 
@@ -204,15 +450,15 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 
 				int32_t strength2 = (delayTime & 65535) << 15;
 				int32_t strength1 = (65535 << 15) - strength2;
-				int sample1Pos = modFXBufferWriteIndex - ((delayTime) >> 16);
+				int32_t sample1Pos = modFXBufferWriteIndex - ((delayTime) >> 16);
 
 				int32_t scaledValue1L =
-				    multiply_32x32_rshift32_rounded(modFXBuffer[sample1Pos & modFXBufferIndexMask].l, strength1);
+				    multiply_32x32_rshift32_rounded(modFXBuffer[sample1Pos & kModFXBufferIndexMask].l, strength1);
 				int32_t scaledValue2L =
-				    multiply_32x32_rshift32_rounded(modFXBuffer[(sample1Pos - 1) & modFXBufferIndexMask].l, strength2);
+				    multiply_32x32_rshift32_rounded(modFXBuffer[(sample1Pos - 1) & kModFXBufferIndexMask].l, strength2);
 				int32_t modFXOutputL = scaledValue1L + scaledValue2L;
 
-				if (modFXType == MOD_FX_TYPE_CHORUS_STEREO) {
+				if (modFXType == ModFXType::CHORUS_STEREO) {
 					delayTime = multiply_32x32_rshift32(lfoOutput, -thisModFXDelayDepth) + modFXDelayOffset;
 					strength2 = (delayTime & 65535) << 15;
 					strength1 = (65535 << 15) - strength2;
@@ -220,12 +466,12 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 				}
 
 				int32_t scaledValue1R =
-				    multiply_32x32_rshift32_rounded(modFXBuffer[sample1Pos & modFXBufferIndexMask].r, strength1);
+				    multiply_32x32_rshift32_rounded(modFXBuffer[sample1Pos & kModFXBufferIndexMask].r, strength1);
 				int32_t scaledValue2R =
-				    multiply_32x32_rshift32_rounded(modFXBuffer[(sample1Pos - 1) & modFXBufferIndexMask].r, strength2);
+				    multiply_32x32_rshift32_rounded(modFXBuffer[(sample1Pos - 1) & kModFXBufferIndexMask].r, strength2);
 				int32_t modFXOutputR = scaledValue1R + scaledValue2R;
 
-				if (modFXType == MOD_FX_TYPE_FLANGER) {
+				if (modFXType == ModFXType::FLANGER) {
 					modFXOutputL = multiply_32x32_rshift32_rounded(modFXOutputL, feedback) << 2;
 					modFXBuffer[modFXBufferWriteIndex].l = modFXOutputL + currentSample->l; // Feedback
 					modFXOutputR = multiply_32x32_rshift32_rounded(modFXOutputR, feedback) << 2;
@@ -241,9 +487,12 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 
 				currentSample->l += modFXOutputL;
 				currentSample->r += modFXOutputR;
-				modFXBufferWriteIndex = (modFXBufferWriteIndex + 1) & modFXBufferIndexMask;
+				modFXBufferWriteIndex = (modFXBufferWriteIndex + 1) & kModFXBufferIndexMask;
 			}
 		} while (++currentSample != bufferEnd);
+		if (modFXType == ModFXType::GRAIN) {
+			AudioEngine::logAction("grain end");
+		}
 	}
 
 	// EQ -------------------------------------------------------------------------------------
@@ -251,21 +500,21 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 	bool thisDoTreble = hasTrebleAdjusted(paramManager);
 
 	// Bass. No-change represented by 0. Off completely represented by -536870912
-	int32_t positive = (unpatchedParams->getValue(PARAM_UNPATCHED_BASS) >> 1) + 1073741824;
+	int32_t positive = (unpatchedParams->getValue(Param::Unpatched::BASS) >> 1) + 1073741824;
 	int32_t bassAmount = (multiply_32x32_rshift32_rounded(positive, positive) << 1) - 536870912;
 
 	// Treble. No-change represented by 536870912
-	positive = (unpatchedParams->getValue(PARAM_UNPATCHED_TREBLE) >> 1) + 1073741824;
+	positive = (unpatchedParams->getValue(Param::Unpatched::TREBLE) >> 1) + 1073741824;
 	int32_t trebleAmount = multiply_32x32_rshift32_rounded(positive, positive) << 1;
 
 	if (thisDoBass || thisDoTreble) {
 
 		if (thisDoBass) {
-			bassFreq = getExp(120000000, (unpatchedParams->getValue(PARAM_UNPATCHED_BASS_FREQ) >> 5) * 6);
+			bassFreq = getExp(120000000, (unpatchedParams->getValue(Param::Unpatched::BASS_FREQ) >> 5) * 6);
 		}
 
 		if (thisDoTreble) {
-			trebleFreq = getExp(700000000, (unpatchedParams->getValue(PARAM_UNPATCHED_TREBLE_FREQ) >> 5) * 6);
+			trebleFreq = getExp(700000000, (unpatchedParams->getValue(Param::Unpatched::TREBLE_FREQ) >> 5) * 6);
 		}
 
 		StereoSample* currentSample = buffer;
@@ -296,7 +545,7 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 			    || delayWorkingState->userDelayRate != delay.primaryBuffer.nativeRate) {
 
 				// If delay speed has settled for a split second...
-				if (delay.countCyclesWithoutChange >= (44100 >> 5)) {
+				if (delay.countCyclesWithoutChange >= (kSampleRate >> 5)) {
 					//Debug::println("settling");
 					initializeSecondaryDelayBuffer(delayWorkingState->userDelayRate, true);
 				}
@@ -325,7 +574,7 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 
 		int32_t* delayWorkingBuffer = spareRenderingBuffer[0];
 
-		generalMemoryAllocator.checkStack("delay");
+		GeneralMemoryAllocator::get().checkStack("delay");
 
 		int32_t* workingBufferEnd = delayWorkingBuffer + numSamples * 2;
 
@@ -628,7 +877,7 @@ void ModControllableAudio::processFX(StereoSample* buffer, int numSamples, int m
 	}
 }
 
-void ModControllableAudio::processReverbSendAndVolume(StereoSample* buffer, int numSamples, int32_t* reverbBuffer,
+void ModControllableAudio::processReverbSendAndVolume(StereoSample* buffer, int32_t numSamples, int32_t* reverbBuffer,
                                                       int32_t postFXVolume, int32_t postReverbVolume,
                                                       int32_t reverbSendAmount, int32_t pan, bool doAmplitudeIncrement,
                                                       int32_t amplitudeIncrement) {
@@ -688,15 +937,15 @@ void ModControllableAudio::processReverbSendAndVolume(StereoSample* buffer, int 
 
 bool ModControllableAudio::isBitcrushingEnabled(ParamManager* paramManager) {
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
-	return (unpatchedParams->getValue(PARAM_UNPATCHED_BITCRUSHING) >= -2113929216);
+	return (unpatchedParams->getValue(Param::Unpatched::BITCRUSHING) >= -2113929216);
 }
 
 bool ModControllableAudio::isSRREnabled(ParamManager* paramManager) {
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
-	return (unpatchedParams->getValue(PARAM_UNPATCHED_SAMPLE_RATE_REDUCTION) != -2147483648);
+	return (unpatchedParams->getValue(Param::Unpatched::SAMPLE_RATE_REDUCTION) != -2147483648);
 }
 
-void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int numSamples, int32_t* postFXVolume,
+void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int32_t numSamples, int32_t* postFXVolume,
                                                     ParamManager* paramManager) {
 	StereoSample const* const bufferEnd = buffer + numSamples;
 
@@ -707,7 +956,7 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 	// Bitcrushing ------------------------------------------------------------------------------
 	if (isBitcrushingEnabled(paramManager)) {
 		uint32_t positivePreset =
-		    (paramManager->getUnpatchedParamSet()->getValue(PARAM_UNPATCHED_BITCRUSHING) + 2147483648) >> 29;
+		    (paramManager->getUnpatchedParamSet()->getValue(Param::Unpatched::BITCRUSHING) + 2147483648) >> 29;
 		if (positivePreset > 4) {
 			*postFXVolume >>= (positivePreset - 4);
 		}
@@ -741,7 +990,7 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 		// This function, slightly unusually, uses 22 bits to represent "1". That's 4194304. I tried using 24, but stuff started clipping off where I needed it if sample rate too low
 
 		uint32_t positivePreset =
-		    paramManager->getUnpatchedParamSet()->getValue(PARAM_UNPATCHED_SAMPLE_RATE_REDUCTION) + 2147483648;
+		    paramManager->getUnpatchedParamSet()->getValue(Param::Unpatched::SAMPLE_RATE_REDUCTION) + 2147483648;
 		int32_t lowSampleRateIncrement = getExp(4194304, (positivePreset >> 3));
 		int32_t highSampleRateIncrement = ((uint32_t)0xFFFFFFFF / (lowSampleRateIncrement >> 6)) << 6;
 		//int32_t highSampleRateIncrement = getExp(4194304, -(int32_t)(positivePreset >> 3)); // This would work too
@@ -776,8 +1025,8 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 
 			// Convert up
 			int32_t strength2 =
-			    getMin(highSampleRatePos,
-			           (uint32_t)4194303); // Would only overshoot if we raised the sample rate during playback
+			    std::min(highSampleRatePos,
+			             (uint32_t)4194303); // Would only overshoot if we raised the sample rate during playback
 			int32_t strength1 = 4194303 - strength2;
 			currentSample->l = (multiply_32x32_rshift32_rounded(lastGrabbedSample.l, strength1 << 9)
 			                    + multiply_32x32_rshift32_rounded(grabbedSample.l, strength2 << 9))
@@ -794,7 +1043,7 @@ void ModControllableAudio::processSRRAndBitcrushing(StereoSample* buffer, int nu
 	}
 }
 
-void ModControllableAudio::processStutter(StereoSample* buffer, int numSamples, ParamManager* paramManager) {
+void ModControllableAudio::processStutter(StereoSample* buffer, int32_t numSamples, ParamManager* paramManager) {
 	if (stutterer.status == STUTTERER_STATUS_OFF) {
 		return;
 	}
@@ -804,6 +1053,7 @@ void ModControllableAudio::processStutter(StereoSample* buffer, int numSamples, 
 	StereoSample* thisSample = buffer;
 
 	DelayBufferSetup delayBufferSetup;
+
 	int32_t rate = getStutterRate(paramManager);
 
 	stutterer.buffer.setupForRender(rate, &delayBufferSetup);
@@ -908,19 +1158,28 @@ void ModControllableAudio::processStutter(StereoSample* buffer, int numSamples, 
 
 int32_t ModControllableAudio::getStutterRate(ParamManager* paramManager) {
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
+	int32_t paramValue = unpatchedParams->getValue(Param::Unpatched::STUTTER_RATE);
+
+	// Quantized Stutter diff
+	// Convert to knobPos (range -64 to 64) for easy operation
+	int32_t knobPos = unpatchedParams->paramValueToKnobPos(paramValue, NULL);
+	// Add diff "lastQuantizedKnobDiff" (this value will be set if Quantized Stutter is On, zero if not so this will be a no-op)
+	knobPos = knobPos + stutterer.lastQuantizedKnobDiff;
+	// Convert back to value range
+	paramValue = unpatchedParams->knobPosToParamValue(knobPos, NULL);
+
 	int32_t rate =
-	    getFinalParameterValueExp(paramNeutralValues[PARAM_GLOBAL_DELAY_RATE],
-	                              cableToExpParamShortcut(unpatchedParams->getValue(PARAM_UNPATCHED_STUTTER_RATE)));
+	    getFinalParameterValueExp(paramNeutralValues[Param::Global::DELAY_RATE], cableToExpParamShortcut(paramValue));
 
 	if (stutterer.sync != 0) {
 		rate = multiply_32x32_rshift32(rate, playbackHandler.getTimePerInternalTickInverse());
 
 		// Limit to the biggest number we can store...
-		int lShiftAmount =
+		int32_t lShiftAmount =
 		    stutterer.sync + 6
 		    - (currentSong->insideWorldTickMagnitude + currentSong->insideWorldTickMagnitudeOffsetFromBPM);
 		int32_t limit = 2147483647 >> lShiftAmount;
-		rate = getMin(rate, limit);
+		rate = std::min(rate, limit);
 		rate <<= lShiftAmount;
 	}
 	return rate;
@@ -981,7 +1240,9 @@ inline void ModControllableAudio::doEQ(bool doBass, bool doTreble, int32_t* inpu
 
 void ModControllableAudio::writeAttributesToFile() {
 	storageManager.writeAttribute("lpfMode", (char*)lpfTypeToString(lpfMode));
+	storageManager.writeAttribute("hpfMode", (char*)lpfTypeToString(hpfMode));
 	storageManager.writeAttribute("modFXType", (char*)fxTypeToString(modFXType));
+	storageManager.writeAttribute("filterRoute", (char*)filterRouteToString(filterRoute));
 	if (clippingAmount) {
 		storageManager.writeAttribute("clippingAmount", clippingAmount);
 	}
@@ -1007,7 +1268,7 @@ void ModControllableAudio::writeTagsToFile() {
 	// MIDI knobs
 	if (midiKnobArray.getNumElements()) {
 		storageManager.writeOpeningTag("midiKnobs");
-		for (int k = 0; k < midiKnobArray.getNumElements(); k++) {
+		for (int32_t k = 0; k < midiKnobArray.getNumElements(); k++) {
 			MIDIKnob* knob = midiKnobArray.getElement(k);
 			storageManager.writeOpeningTagBeginning("midiKnob");
 			knob->midiInput.writeAttributesToFile(
@@ -1042,15 +1303,15 @@ void ModControllableAudio::writeParamAttributesToFile(ParamManager* paramManager
                                                       int32_t* valuesForOverride) {
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
-	unpatchedParams->writeParamAsAttribute("stutterRate", PARAM_UNPATCHED_STUTTER_RATE, writeAutomation, false,
+	unpatchedParams->writeParamAsAttribute("stutterRate", Param::Unpatched::STUTTER_RATE, writeAutomation, false,
 	                                       valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("sampleRateReduction", PARAM_UNPATCHED_SAMPLE_RATE_REDUCTION,
+	unpatchedParams->writeParamAsAttribute("sampleRateReduction", Param::Unpatched::SAMPLE_RATE_REDUCTION,
 	                                       writeAutomation, false, valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("bitCrush", PARAM_UNPATCHED_BITCRUSHING, writeAutomation, false,
+	unpatchedParams->writeParamAsAttribute("bitCrush", Param::Unpatched::BITCRUSHING, writeAutomation, false,
 	                                       valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("modFXOffset", PARAM_UNPATCHED_MOD_FX_OFFSET, writeAutomation, false,
+	unpatchedParams->writeParamAsAttribute("modFXOffset", Param::Unpatched::MOD_FX_OFFSET, writeAutomation, false,
 	                                       valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("modFXFeedback", PARAM_UNPATCHED_MOD_FX_FEEDBACK, writeAutomation, false,
+	unpatchedParams->writeParamAsAttribute("modFXFeedback", Param::Unpatched::MOD_FX_FEEDBACK, writeAutomation, false,
 	                                       valuesForOverride);
 }
 
@@ -1059,11 +1320,12 @@ void ModControllableAudio::writeParamTagsToFile(ParamManager* paramManager, bool
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
 	storageManager.writeOpeningTagBeginning("equalizer");
-	unpatchedParams->writeParamAsAttribute("bass", PARAM_UNPATCHED_BASS, writeAutomation, false, valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("treble", PARAM_UNPATCHED_TREBLE, writeAutomation, false, valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("bassFrequency", PARAM_UNPATCHED_BASS_FREQ, writeAutomation, false,
+	unpatchedParams->writeParamAsAttribute("bass", Param::Unpatched::BASS, writeAutomation, false, valuesForOverride);
+	unpatchedParams->writeParamAsAttribute("treble", Param::Unpatched::TREBLE, writeAutomation, false,
 	                                       valuesForOverride);
-	unpatchedParams->writeParamAsAttribute("trebleFrequency", PARAM_UNPATCHED_TREBLE_FREQ, writeAutomation, false,
+	unpatchedParams->writeParamAsAttribute("bassFrequency", Param::Unpatched::BASS_FREQ, writeAutomation, false,
+	                                       valuesForOverride);
+	unpatchedParams->writeParamAsAttribute("trebleFrequency", Param::Unpatched::TREBLE_FREQ, writeAutomation, false,
 	                                       valuesForOverride);
 	storageManager.closeTag();
 }
@@ -1076,19 +1338,20 @@ bool ModControllableAudio::readParamTagFromFile(char const* tagName, ParamManage
 	if (!strcmp(tagName, "equalizer")) {
 		while (*(tagName = storageManager.readNextTagOrAttributeName())) {
 			if (!strcmp(tagName, "bass")) {
-				unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_BASS, readAutomationUpToPos);
+				unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::BASS, readAutomationUpToPos);
 				storageManager.exitTag("bass");
 			}
 			else if (!strcmp(tagName, "treble")) {
-				unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_TREBLE, readAutomationUpToPos);
+				unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::TREBLE, readAutomationUpToPos);
 				storageManager.exitTag("treble");
 			}
 			else if (!strcmp(tagName, "bassFrequency")) {
-				unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_BASS_FREQ, readAutomationUpToPos);
+				unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::BASS_FREQ, readAutomationUpToPos);
 				storageManager.exitTag("bassFrequency");
 			}
 			else if (!strcmp(tagName, "trebleFrequency")) {
-				unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_TREBLE_FREQ, readAutomationUpToPos);
+				unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::TREBLE_FREQ,
+				                           readAutomationUpToPos);
 				storageManager.exitTag("trebleFrequency");
 			}
 		}
@@ -1096,28 +1359,28 @@ bool ModControllableAudio::readParamTagFromFile(char const* tagName, ParamManage
 	}
 
 	else if (!strcmp(tagName, "stutterRate")) {
-		unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_STUTTER_RATE, readAutomationUpToPos);
+		unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::STUTTER_RATE, readAutomationUpToPos);
 		storageManager.exitTag("stutterRate");
 	}
 
 	else if (!strcmp(tagName, "sampleRateReduction")) {
-		unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_SAMPLE_RATE_REDUCTION,
+		unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::SAMPLE_RATE_REDUCTION,
 		                           readAutomationUpToPos);
 		storageManager.exitTag("sampleRateReduction");
 	}
 
 	else if (!strcmp(tagName, "bitCrush")) {
-		unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_BITCRUSHING, readAutomationUpToPos);
+		unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::BITCRUSHING, readAutomationUpToPos);
 		storageManager.exitTag("bitCrush");
 	}
 
 	else if (!strcmp(tagName, "modFXOffset")) {
-		unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_MOD_FX_OFFSET, readAutomationUpToPos);
+		unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::MOD_FX_OFFSET, readAutomationUpToPos);
 		storageManager.exitTag("modFXOffset");
 	}
 
 	else if (!strcmp(tagName, "modFXFeedback")) {
-		unpatchedParams->readParam(unpatchedParamsSummary, PARAM_UNPATCHED_MOD_FX_FEEDBACK, readAutomationUpToPos);
+		unpatchedParams->readParam(unpatchedParamsSummary, Param::Unpatched::MOD_FX_FEEDBACK, readAutomationUpToPos);
 		storageManager.exitTag("modFXFeedback");
 	}
 
@@ -1129,18 +1392,22 @@ bool ModControllableAudio::readParamTagFromFile(char const* tagName, ParamManage
 }
 
 // paramManager is optional
-int ModControllableAudio::readTagFromFile(char const* tagName, ParamManagerForTimeline* paramManager,
-                                          int32_t readAutomationUpToPos, Song* song) {
+int32_t ModControllableAudio::readTagFromFile(char const* tagName, ParamManagerForTimeline* paramManager,
+                                              int32_t readAutomationUpToPos, Song* song) {
 
-	// All of this is here for compatibility only for people (Lou and Ian) who saved songs with firmware in September 2016
-	//if (paramManager && ModControllableAudio::readParamTagFromFile(tagName, paramManager, readAutomation)) {}
+	int32_t p;
 
-	int p;
-
-	//else
 	if (!strcmp(tagName, "lpfMode")) {
 		lpfMode = stringToLPFType(storageManager.readTagOrAttributeValue());
 		storageManager.exitTag("lpfMode");
+	}
+	else if (!strcmp(tagName, "hpfMode")) {
+		hpfMode = stringToLPFType(storageManager.readTagOrAttributeValue());
+		storageManager.exitTag("hpfMode");
+	}
+	else if (!strcmp(tagName, "filterRoute")) {
+		filterRoute = stringToFilterRoute(storageManager.readTagOrAttributeValue());
+		storageManager.exitTag("filterRoute");
 	}
 
 	else if (!strcmp(tagName, "clippingAmount")) {
@@ -1157,34 +1424,35 @@ int ModControllableAudio::readTagFromFile(char const* tagName, ParamManagerForTi
 
 			// These first two ensure compatibility with old files (pre late 2016 I think?)
 			if (!strcmp(tagName, "feedback")) {
-				p = PARAM_GLOBAL_DELAY_FEEDBACK;
+				p = Param::Global::DELAY_FEEDBACK;
 doReadPatchedParam:
 				if (paramManager) {
 					if (!paramManager->containsAnyMainParamCollections()) {
-						int error = Sound::createParamManagerForLoading(paramManager);
+						int32_t error = Sound::createParamManagerForLoading(paramManager);
 						if (error) {
 							return error;
 						}
 					}
 					ParamCollectionSummary* patchedParamsSummary = paramManager->getPatchedParamSetSummary();
 					PatchedParamSet* patchedParams = (PatchedParamSet*)patchedParamsSummary->paramCollection;
-					patchedParams->readParam(patchedParamsSummary, PARAM_GLOBAL_DELAY_FEEDBACK, readAutomationUpToPos);
+					patchedParams->readParam(patchedParamsSummary, Param::Global::DELAY_FEEDBACK,
+					                         readAutomationUpToPos);
 				}
 				storageManager.exitTag();
 			}
 			else if (!strcmp(tagName, "rate")) {
-				p = PARAM_GLOBAL_DELAY_RATE;
+				p = Param::Global::DELAY_RATE;
 				goto doReadPatchedParam;
 			}
 
 			else if (!strcmp(tagName, "pingPong")) {
 				int32_t contents = storageManager.readTagOrAttributeValueInt();
-				delay.pingPong = getMax((int32_t)0, getMin((int32_t)1, contents));
+				delay.pingPong = std::max((int32_t)0, std::min((int32_t)1, contents));
 				storageManager.exitTag("pingPong");
 			}
 			else if (!strcmp(tagName, "analog")) {
 				int32_t contents = storageManager.readTagOrAttributeValueInt();
-				delay.analog = getMax((int32_t)0, getMin((int32_t)1, contents));
+				delay.analog = std::max((int32_t)0, std::min((int32_t)1, contents));
 				storageManager.exitTag("analog");
 			}
 			else if (!strcmp(tagName, "syncType")) {
@@ -1240,9 +1508,9 @@ doReadPatchedParam:
 				uint8_t channel;
 				uint8_t ccNumber;
 				bool relative;
-				uint8_t p = PARAM_NONE;
-				uint8_t s = 255;
-				uint8_t s2 = 255;
+				uint8_t p = Param::Global::NONE;
+				PatchSource s = PatchSource::NOT_AVAILABLE;
+				PatchSource s2 = PatchSource::NOT_AVAILABLE;
 
 				while (*(tagName = storageManager.readNextTagOrAttributeName())) {
 					if (!strcmp(tagName, "device")) {
@@ -1269,7 +1537,7 @@ doReadPatchedParam:
 					storageManager.exitTag();
 				}
 
-				if (p != PARAM_NONE && p != PARAM_PLACEHOLDER_RANGE) {
+				if (p != Param::Global::NONE && p != Param::PLACEHOLDER_RANGE) {
 					MIDIKnob* newKnob = midiKnobArray.insertKnobAtEnd();
 					if (newKnob) {
 						newKnob->midiInput.device = device;
@@ -1277,10 +1545,10 @@ doReadPatchedParam:
 						newKnob->midiInput.noteOrCC = ccNumber;
 						newKnob->relative = relative;
 
-						if (s == 255) {
+						if (s == PatchSource::NOT_AVAILABLE) {
 							newKnob->paramDescriptor.setToHaveParamOnly(p);
 						}
-						else if (s2 == 255) {
+						else if (s2 == PatchSource::NOT_AVAILABLE) {
 							newKnob->paramDescriptor.setToHaveParamAndSource(p, s);
 						}
 						else {
@@ -1307,7 +1575,7 @@ ModelStackWithAutoParam* ModControllableAudio::getParamFromMIDIKnob(MIDIKnob* kn
 	ParamCollectionSummary* summary = modelStack->paramManager->getUnpatchedParamSetSummary();
 	ParamCollection* paramCollection = summary->paramCollection;
 
-	int paramId = knob->paramDescriptor.getJustTheParam() - PARAM_UNPATCHED_SECTION;
+	int32_t paramId = knob->paramDescriptor.getJustTheParam() - Param::Unpatched::START;
 
 	ModelStackWithParamId* modelStackWithParamId =
 	    modelStack->addParamCollectionAndId(paramCollection, summary, paramId);
@@ -1318,16 +1586,16 @@ ModelStackWithAutoParam* ModControllableAudio::getParamFromMIDIKnob(MIDIKnob* kn
 }
 
 ModelStackWithThreeMainThings* ModControllableAudio::addNoteRowIndexAndStuff(ModelStackWithTimelineCounter* modelStack,
-                                                                             int noteRowIndex) {
+                                                                             int32_t noteRowIndex) {
 	NoteRow* noteRow = NULL;
-	int noteRowId = 0;
+	int32_t noteRowId = 0;
 	ParamManager* paramManager;
 
 	if (noteRowIndex != -1) {
 		InstrumentClip* clip = (InstrumentClip*)modelStack->getTimelineCounter();
 #if ALPHA_OR_BETA_VERSION
 		if (noteRowIndex >= clip->noteRows.getNumElements()) {
-			numericDriver.freezeWithError("E406");
+			FREEZE_WITH_ERROR("E406");
 		}
 #endif
 		noteRow = clip->noteRows.getElement(noteRowIndex);
@@ -1352,12 +1620,12 @@ ModelStackWithThreeMainThings* ModControllableAudio::addNoteRowIndexAndStuff(Mod
 
 bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice, uint8_t channel, uint8_t ccNumber,
                                                           uint8_t value, ModelStackWithTimelineCounter* modelStack,
-                                                          int noteRowIndex) {
+                                                          int32_t noteRowIndex) {
 
 	bool messageUsed = false;
 
 	// For each MIDI knob...
-	for (int k = 0; k < midiKnobArray.getNumElements(); k++) {
+	for (int32_t k = 0; k < midiKnobArray.getNumElements(); k++) {
 		MIDIKnob* knob = midiKnobArray.getElement(k);
 
 		// If this is the knob...
@@ -1392,31 +1660,31 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 			ModelStackWithAutoParam* modelStackWithParam = getParamFromMIDIKnob(knob, modelStackWithThreeMainThings);
 
 			if (modelStackWithParam->autoParam) {
-				int newKnobPos;
+				int32_t newKnobPos;
 
 				if (knob->relative) {
-					int offset = value;
+					int32_t offset = value;
 					if (offset >= 64) {
 						offset -= 128;
 					}
 
 					int32_t previousValue =
 					    modelStackWithParam->autoParam->getValuePossiblyAtPos(modPos, modelStackWithParam);
-					int knobPos =
+					int32_t knobPos =
 					    modelStackWithParam->paramCollection->paramValueToKnobPos(previousValue, modelStackWithParam);
-					int lowerLimit = getMin(-64, knobPos);
+					int32_t lowerLimit = std::min(-64_i32, knobPos);
 					newKnobPos = knobPos + offset;
-					newKnobPos = getMax(newKnobPos, lowerLimit);
-					newKnobPos = getMin(newKnobPos, 64);
+					newKnobPos = std::max(newKnobPos, lowerLimit);
+					newKnobPos = std::min(newKnobPos, 64_i32);
 					if (newKnobPos == knobPos) {
 						continue;
 					}
 				}
 				else {
-					if (midiEngine.midiTakeover == MIDI_TAKEOVER_JUMP) { //Midi Takeover Mode = Jump
+					if (midiEngine.midiTakeover == MIDITakeoverMode::JUMP) { //Midi Takeover Mode = Jump
 						newKnobPos = 64;
 						if (value < 127) {
-							newKnobPos = (int)value - 64;
+							newKnobPos = (int32_t)value - 64;
 						}
 						knob->previousPositionSaved = false;
 					}
@@ -1436,7 +1704,7 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 
 						*/
 
-						int midiKnobPos = value - 64;
+						int32_t midiKnobPos = value - 64;
 
 						//Save previous knob position for first time
 						//The first time a midi knob is turned in a session, no previous midi knob position information exists, so to start, it will be equal to the current midiKnobPos
@@ -1464,49 +1732,44 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 						    modelStackWithParam->autoParam->getValuePossiblyAtPos(modPos, modelStackWithParam);
 
 						//Here we convert the current Parameter Value on the Deluge to a Knob Position Value
-						int knobPos = modelStackWithParam->paramCollection->paramValueToKnobPos(previousValue,
-						                                                                        modelStackWithParam);
+						int32_t knobPos = modelStackWithParam->paramCollection->paramValueToKnobPos(
+						    previousValue, modelStackWithParam);
 
 						//Here is where we check if the Knob/Fader on the Midi Controller is out of sync with the Deluge Knob Position
 
-						//First we check if the Midi Knob/Fader is sending a Value that is less the current Deluge Knob Position
-						//If less, check by how much its less. If the difference is greater than 1, ignore the CC value change (or scale it if value scaling is on)
-						if (midiKnobPos == (knobPos - 1)) {
-							newKnobPos = knobPos - 1;
-						}
+						//First we check if the Midi Knob/Fader is sending a Value that is greater than or less than the current Deluge Knob Position by a max difference of +/- kMIDITakeoverKnobSyncThreshold
+						//If the difference is greater than kMIDITakeoverKnobSyncThreshold, ignore the CC value change (or scale it if value scaling is on)
+						int32_t midiKnobMinPos = knobPos - kMIDITakeoverKnobSyncThreshold;
+						int32_t midiKnobMaxPos = knobPos + kMIDITakeoverKnobSyncThreshold;
 
-						//Next we check if the Midi Knob/Fader is sending a Value that is greater than the current Deluge Knob Position
-						//If greater, check by how much its greater. If the difference is greater than 1, ignore the CC value change (or scale it if value scaling is on)
-						else if (midiKnobPos == (knobPos + 1)) {
-							newKnobPos = knobPos + 1;
+						if ((midiKnobMinPos <= midiKnobPos) && (midiKnobPos <= midiKnobMaxPos)) {
+							newKnobPos = knobPos + (midiKnobPos - knobPos);
 						}
-
 						else {
-
-							//if the first two conditions fail and pickup mode is enabled, then the Deluge Knob Position (and therefore the Parameter Value with it) remains unchanged
-							if (midiEngine.midiTakeover == MIDI_TAKEOVER_PICKUP) { //Midi Pickup Mode On
+							//if the above conditions fail and pickup mode is enabled, then the Deluge Knob Position (and therefore the Parameter Value with it) remains unchanged
+							if (midiEngine.midiTakeover == MIDITakeoverMode::PICKUP) { //Midi Pickup Mode On
 								newKnobPos = knobPos;
 							}
 							//if the first two conditions fail and value scaling mode is enabled, then the Deluge Knob Position is scaled upwards or downwards based on relative
 							//positions of Midi Controller Knob and Deluge Knob to min/max of knob range.
 							else { //Midi Value Scaling Mode On
 								//Set the max and min of the deluge midi knob position range
-								int knobMaxPos = 64;
-								int knobMinPos = -64;
+								int32_t knobMaxPos = 64;
+								int32_t knobMinPos = -64;
 
 								//calculate amount of deluge "knob runway" is remaining from current knob position to max and min of knob position range
-								int delugeKnobMaxPosDelta = knobMaxPos - knobPos; //Positive Runway
-								int delugeKnobMinPosDelta = knobPos - knobMinPos; //Negative Runway
+								int32_t delugeKnobMaxPosDelta = knobMaxPos - knobPos; //Positive Runway
+								int32_t delugeKnobMinPosDelta = knobPos - knobMinPos; //Negative Runway
 
 								//calculate amount of midi "knob runway" is remaining from current knob position to max and min of knob position range
-								int midiKnobMaxPosDelta = knobMaxPos - midiKnobPos; //Positive Runway
-								int midiKnobMinPosDelta = midiKnobPos - knobMinPos; //Negative Runway
+								int32_t midiKnobMaxPosDelta = knobMaxPos - midiKnobPos; //Positive Runway
+								int32_t midiKnobMinPosDelta = midiKnobPos - knobMinPos; //Negative Runway
 
 								//calculate by how much the current midiKnobPos has changed from the previous midiKnobPos recorded
-								int midiKnobPosChange = midiKnobPos - knob->previousPosition;
+								int32_t midiKnobPosChange = midiKnobPos - knob->previousPosition;
 
 								//Set fixed point variable which will be used calculate the percentage in midi knob position
-								int midiKnobPosChangePercentage;
+								int32_t midiKnobPosChangePercentage;
 
 								//if midi knob position change is greater than 0, then the midi knob position has increased (e.g. turned knob right)
 								if (midiKnobPosChange > 0) {
@@ -1555,12 +1818,12 @@ bool ModControllableAudio::offerReceivedCCToLearnedParams(MIDIDevice* fromDevice
 bool ModControllableAudio::offerReceivedPitchBendToLearnedParams(MIDIDevice* fromDevice, uint8_t channel, uint8_t data1,
                                                                  uint8_t data2,
                                                                  ModelStackWithTimelineCounter* modelStack,
-                                                                 int noteRowIndex) {
+                                                                 int32_t noteRowIndex) {
 
 	bool messageUsed = false;
 
 	// For each MIDI knob...
-	for (int k = 0; k < midiKnobArray.getNumElements(); k++) {
+	for (int32_t k = 0; k < midiKnobArray.getNumElements(); k++) {
 		MIDIKnob* knob = midiKnobArray.getElement(k);
 
 		// If this is the knob...
@@ -1612,6 +1875,36 @@ void ModControllableAudio::beginStutter(ParamManagerForTimeline* paramManager) {
 		return;
 	}
 
+	// Quantized Stutter FX
+	if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::QuantizedStutterRate) == RuntimeFeatureStateToggle::On) {
+		UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
+		int32_t paramValue = unpatchedParams->getValue(Param::Unpatched::STUTTER_RATE);
+		int32_t knobPos = unpatchedParams->paramValueToKnobPos(paramValue, NULL);
+		if (knobPos < -39) {
+			knobPos = -16; // 4ths
+		}
+		else if (knobPos < -14) {
+			knobPos = -8; // 8ths
+		}
+		else if (knobPos < 14) {
+			knobPos = 0; // 16ths
+		}
+		else if (knobPos < 39) {
+			knobPos = 8; // 32nds
+		}
+		else {
+			knobPos = 16; // 64ths
+		}
+		// Save current values for later recovering them
+		stutterer.valueBeforeStuttering = paramValue;
+		stutterer.lastQuantizedKnobDiff = knobPos;
+
+		// When stuttering, we center the value at 0, so the center is the reference for the stutter rate that we selected just before pressing the knob
+		// and we use the lastQuantizedKnobDiff value to calculate the relative (real) value
+		unpatchedParams->params[Param::Unpatched::STUTTER_RATE].setCurrentValueBasicForSetup(0);
+		view.notifyParamAutomationOccurred(paramManager);
+	}
+
 	// You'd think I should apply "false" here, to make it not add extra space to the buffer, but somehow this seems to sound as good if not better (in terms of ticking / crackling)...
 	bool error = stutterer.buffer.init(getStutterRate(paramManager), 0, true);
 	if (error == NO_ERROR) {
@@ -1631,12 +1924,25 @@ void ModControllableAudio::endStutter(ParamManagerForTimeline* paramManager) {
 
 		UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
-		// Normally we shouldn't call this directly, but it's ok because automation isn't allowed for stutter anyway
-		if (unpatchedParams->getValue(PARAM_UNPATCHED_STUTTER_RATE) < 0) {
-			unpatchedParams->params[PARAM_UNPATCHED_STUTTER_RATE].setCurrentValueBasicForSetup(0);
+		if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::QuantizedStutterRate)
+		    == RuntimeFeatureStateToggle::On) {
+			// Quantized Stutter FX (set back the value it had just before stuttering so orange LEDs are redrawn)
+			unpatchedParams->params[Param::Unpatched::STUTTER_RATE].setCurrentValueBasicForSetup(
+			    stutterer.valueBeforeStuttering);
 			view.notifyParamAutomationOccurred(paramManager);
 		}
+		else {
+			// Regular Stutter FX (if below middle value, reset it back to middle)
+			// Normally we shouldn't call this directly, but it's ok because automation isn't allowed for stutter anyway
+			if (unpatchedParams->getValue(Param::Unpatched::STUTTER_RATE) < 0) {
+				unpatchedParams->params[Param::Unpatched::STUTTER_RATE].setCurrentValueBasicForSetup(0);
+				view.notifyParamAutomationOccurred(paramManager);
+			}
+		}
 	}
+	// Reset temporary and diff values for Quantized stutter
+	stutterer.lastQuantizedKnobDiff = 0;
+	stutterer.valueBeforeStuttering = 0;
 }
 
 void ModControllableAudio::switchDelayPingPong() {
@@ -1652,7 +1958,7 @@ void ModControllableAudio::switchDelayPingPong() {
 		displayText = "Ping-pong delay";
 		break;
 	}
-	numericDriver.displayPopup(displayText);
+	display->displayPopup(displayText);
 }
 
 void ModControllableAudio::switchDelayAnalog() {
@@ -1665,37 +1971,105 @@ void ModControllableAudio::switchDelayAnalog() {
 		break;
 
 	default:
-		displayText = HAVE_OLED ? "Analog delay" : "ANA";
+		displayText = deluge::l10n::get(deluge::l10n::String::STRING_FOR_ANALOG_DELAY);
 		break;
 	}
-	numericDriver.displayPopup(displayText);
+	display->displayPopup(displayText);
 }
 
-void ModControllableAudio::switchLPFMode() {
-	lpfMode++;
-	if (lpfMode >= NUM_LPF_MODES) {
-		lpfMode = 0;
+void ModControllableAudio::switchDelaySyncType() {
+	switch (delay.syncType) {
+	case SYNC_TYPE_TRIPLET:
+		delay.syncType = SYNC_TYPE_DOTTED;
+		break;
+	case SYNC_TYPE_DOTTED:
+		delay.syncType = SYNC_TYPE_EVEN;
+		break;
+
+	default: //SYNC_TYPE_EVEN
+		delay.syncType = SYNC_TYPE_TRIPLET;
+		break;
 	}
 
 	char const* displayText;
-	switch (lpfMode) {
-	case LPF_MODE_12DB:
-		displayText = "12DB LPF";
+	switch (delay.syncType) {
+	case SYNC_TYPE_TRIPLET:
+		displayText = "Triplet";
+		break;
+	case SYNC_TYPE_DOTTED:
+		displayText = "Dotted";
 		break;
 
-	case LPF_MODE_TRANSISTOR_24DB:
-		displayText = "24DB LPF";
-		break;
-
-	case LPF_MODE_TRANSISTOR_24DB_DRIVE:
-		displayText = "DRIVE LPF";
-		break;
-
-	case LPF_MODE_SVF:
-		displayText = "SVF";
+	default: //SYNC_TYPE_EVEN
+		displayText = "Even";
 		break;
 	}
-	numericDriver.displayPopup(displayText);
+	display->displayPopup(displayText);
+}
+
+void ModControllableAudio::switchDelaySyncLevel() {
+	// Note: SYNC_LEVEL_NONE (value 0) can't be selected
+	delay.syncLevel = (SyncLevel)((delay.syncLevel) % SyncLevel::SYNC_LEVEL_256TH + 1); //cycle from 1 to 9 (omit 0)
+
+	char* buffer = shortStringBuffer;
+	currentSong->getNoteLengthName(buffer, (uint32_t)3 << (SYNC_LEVEL_256TH - delay.syncLevel));
+	if (display->haveOLED()) {
+		// Need to delete "-notes" from the name
+		std::string noteName(buffer);
+		std::string cleanName = noteName.substr(0, noteName.find("-notes"));
+		display->displayPopup(cleanName.c_str());
+	}
+	else {
+		// 7 Seg just display it
+		display->displayPopup(buffer);
+	}
+}
+
+void ModControllableAudio::switchLPFMode() {
+	lpfMode = static_cast<FilterMode>((util::to_underlying(lpfMode) + 1) % kNumLPFModes);
+
+	char const* displayText;
+	switch (lpfMode) {
+		using enum deluge::l10n::String;
+	case FilterMode::TRANSISTOR_12DB:
+		displayText = l10n::get(STRING_FOR_12DB_LADDER);
+		break;
+
+	case FilterMode::TRANSISTOR_24DB:
+		displayText = l10n::get(STRING_FOR_24DB_LADDER);
+		break;
+
+	case FilterMode::TRANSISTOR_24DB_DRIVE:
+		displayText = l10n::get(STRING_FOR_DRIVE);
+		break;
+
+	case FilterMode::SVF_BAND:
+		displayText = l10n::get(STRING_FOR_SVF_BAND);
+		break;
+	case FilterMode::SVF_NOTCH:
+		displayText = l10n::get(STRING_FOR_SVF_NOTCH);
+		break;
+	}
+	display->displayPopup(displayText);
+}
+void ModControllableAudio::switchHPFMode() {
+	//this works fine, the offset to the first hpf doesn't matter with the modulus
+	hpfMode = static_cast<FilterMode>((util::to_underlying(hpfMode) + 1) % kNumHPFModes + kFirstHPFMode);
+
+	char const* displayText;
+	switch (hpfMode) {
+		using enum deluge::l10n::String;
+	case FilterMode::HPLADDER:
+		displayText = l10n::get(STRING_FOR_HPLADDER);
+		break;
+	case FilterMode::SVF_BAND:
+		displayText = l10n::get(STRING_FOR_SVF_BAND);
+		break;
+	case FilterMode::SVF_NOTCH:
+		displayText = l10n::get(STRING_FOR_SVF_NOTCH);
+		break;
+	}
+	display->displayPopup(displayText);
 }
 
 // This can get called either for hibernation, or because drum now has no active noteRow
@@ -1705,19 +2079,25 @@ void ModControllableAudio::wontBeRenderedForAWhile() {
 }
 
 void ModControllableAudio::clearModFXMemory() {
-	if (modFXType == MOD_FX_TYPE_FLANGER || modFXType == MOD_FX_TYPE_CHORUS || modFXType == MOD_FX_TYPE_CHORUS_STEREO) {
+	if (modFXType == ModFXType::FLANGER || modFXType == ModFXType::CHORUS || modFXType == ModFXType::CHORUS_STEREO) {
 		if (modFXBuffer) {
-			memset(modFXBuffer, 0, modFXBufferSize * sizeof(StereoSample));
+			memset(modFXBuffer, 0, kModFXBufferSize * sizeof(StereoSample));
 		}
 	}
-	else if (modFXType == MOD_FX_TYPE_PHASER) {
+	else if (modFXType == ModFXType::GRAIN) {
+		for (int i = 0; i < 8; i++) {
+			grains[i].length = 0;
+		}
+		grainInitialized = false;
+		modFXGrainBufferWriteIndex = 0;
+	}
+	else if (modFXType == ModFXType::PHASER) {
 		memset(allpassMemory, 0, sizeof(allpassMemory));
 		memset(&phaserMemory, 0, sizeof(phaserMemory));
 	}
 }
 
-bool ModControllableAudio::setModFXType(int newType) {
-
+bool ModControllableAudio::setModFXType(ModFXType newType) {
 	// For us ModControllableAudios, this is really simple. Memory gets allocated in GlobalEffectable::processFXForGlobalEffectable().
 	// This function is overridden in Sound
 	modFXType = newType;
@@ -1753,7 +2133,7 @@ bool ModControllableAudio::learnKnob(MIDIDevice* fromDevice, ParamDescriptor par
 		MIDIKnob* knob;
 
 		// Was this MIDI knob already set to control this thing?
-		for (int k = 0; k < midiKnobArray.getNumElements(); k++) {
+		for (int32_t k = 0; k < midiKnobArray.getNumElements(); k++) {
 			knob = midiKnobArray.getElement(k);
 			if (knob->midiInput.equalsNoteOrCC(fromDevice, midiChannel, whichKnob)
 			    && paramDescriptor == knob->paramDescriptor) {
@@ -1789,7 +2169,7 @@ bool ModControllableAudio::unlearnKnobs(ParamDescriptor paramDescriptor, Song* s
 
 	// I've deactivated the unlearning of mod knobs, mainly because, if you want to unlearn a MIDI knob, you might not want to also deactivate a mod knob to the same param at the same time
 
-	for (int k = 0; k < midiKnobArray.getNumElements();) {
+	for (int32_t k = 0; k < midiKnobArray.getNumElements();) {
 		MIDIKnob* knob = midiKnobArray.getElement(k);
 		if (knob->paramDescriptor == paramDescriptor) {
 			anythingFound = true;
@@ -1812,34 +2192,34 @@ char const* ModControllableAudio::paramToString(uint8_t param) {
 	switch (param) {
 
 		// Unpatched params
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_STUTTER_RATE:
+	case Param::Unpatched::START + Param::Unpatched::STUTTER_RATE:
 		return "stutterRate";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_BASS:
+	case Param::Unpatched::START + Param::Unpatched::BASS:
 		return "bass";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_TREBLE:
+	case Param::Unpatched::START + Param::Unpatched::TREBLE:
 		return "treble";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_BASS_FREQ:
+	case Param::Unpatched::START + Param::Unpatched::BASS_FREQ:
 		return "bassFreq";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_TREBLE_FREQ:
+	case Param::Unpatched::START + Param::Unpatched::TREBLE_FREQ:
 		return "trebleFreq";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_SAMPLE_RATE_REDUCTION:
+	case Param::Unpatched::START + Param::Unpatched::SAMPLE_RATE_REDUCTION:
 		return "sampleRateReduction";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_BITCRUSHING:
+	case Param::Unpatched::START + Param::Unpatched::BITCRUSHING:
 		return "bitcrushAmount";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_MOD_FX_OFFSET:
+	case Param::Unpatched::START + Param::Unpatched::MOD_FX_OFFSET:
 		return "modFXOffset";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_MOD_FX_FEEDBACK:
+	case Param::Unpatched::START + Param::Unpatched::MOD_FX_FEEDBACK:
 		return "modFXFeedback";
 
-	case PARAM_UNPATCHED_SECTION + PARAM_UNPATCHED_COMPRESSOR_SHAPE:
+	case Param::Unpatched::START + Param::Unpatched::COMPRESSOR_SHAPE:
 		return "compressorShape";
 
 	default:
@@ -1847,22 +2227,22 @@ char const* ModControllableAudio::paramToString(uint8_t param) {
 	}
 }
 
-int ModControllableAudio::stringToParam(char const* string) {
-	for (int p = PARAM_UNPATCHED_SECTION; p < PARAM_UNPATCHED_SECTION + NUM_SHARED_UNPATCHED_PARAMS; p++) {
+int32_t ModControllableAudio::stringToParam(char const* string) {
+	for (int32_t p = Param::Unpatched::START; p < Param::Unpatched::START + Param::Unpatched::NUM_SHARED; p++) {
 		if (!strcmp(string, ModControllableAudio::paramToString(p))) {
 			return p;
 		}
 	}
-	return PARAM_NONE;
+	return Param::Global::NONE;
 }
 
-ModelStackWithAutoParam* ModControllableAudio::getParamFromModEncoder(int whichModEncoder,
+ModelStackWithAutoParam* ModControllableAudio::getParamFromModEncoder(int32_t whichModEncoder,
                                                                       ModelStackWithThreeMainThings* modelStack,
                                                                       bool allowCreation) {
 
 	ParamManagerForTimeline* paramManager = (ParamManagerForTimeline*)modelStack->paramManager;
 
-	int paramId;
+	int32_t paramId;
 	ParamCollectionSummary* summary = modelStack->paramManager->getUnpatchedParamSetSummary();
 	ParamCollection* paramCollection = summary->paramCollection;
 

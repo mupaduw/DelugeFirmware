@@ -15,30 +15,60 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
+#include "gui/menu_item/formatted_title.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 #include "processing/engines/cv_engine.h"
+#include "util/misc.h"
+#include <string_view>
 
-namespace menu_item::gate {
-#if HAVE_OLED
-// Why'd I put two NULLs? (Rohan)
-// Gets updated in gate::Selection lol (Kate)
-static char const* mode_options[] = {"V-trig", "S-trig", NULL, NULL};
-#else
-static char const* mode_options[] = {"VTRI", "STRI", NULL, NULL};
-#endif
+namespace deluge::gui::menu_item::gate {
 
-#if HAVE_OLED
-static char mode_title[] = "Gate outX mode";
-#else
-static char* mode_title = nullptr;
-#endif
+class Mode final : public Selection, public FormattedTitle {
 
-class Mode final : public Selection {
+	std::vector<l10n::String> options_ = {
+	    l10n::String::STRING_FOR_V_TRIGGER,
+	    l10n::String::STRING_FOR_S_TRIGGER,
+	};
+
 public:
-	Mode() : Selection(mode_title) { basicOptions = mode_options; }
-	void readCurrentValue() { soundEditor.currentValue = cvEngine.gateChannels[soundEditor.currentSourceIndex].mode; }
-	void writeCurrentValue() { cvEngine.setGateType(soundEditor.currentSourceIndex, soundEditor.currentValue); }
+	Mode() : Selection(), FormattedTitle(l10n::String::STRING_FOR_GATE_MODE_TITLE) {}
+	[[nodiscard]] std::string_view getTitle() const override { return FormattedTitle::title(); }
+
+	void readCurrentValue() override { this->setValue(cvEngine.gateChannels[soundEditor.currentSourceIndex].mode); }
+	void writeCurrentValue() override {
+		cvEngine.setGateType(soundEditor.currentSourceIndex, this->getValue<GateType>());
+	}
+	std::vector<std::string_view> getOptions() override {
+		std::vector<std::string_view> output;
+		for (l10n::String str : options_) {
+			output.push_back(l10n::getView(str));
+		}
+		return output;
+	}
+
+	void updateOptions(int32_t value) {
+		using enum l10n::String;
+		// Remove the extra entry if it's present
+		if (options_.size() > 2) {
+			options_.pop_back();
+		}
+
+		switch (value) {
+		case WHICH_GATE_OUTPUT_IS_CLOCK:
+			options_.push_back(STRING_FOR_CLOCK);
+			break;
+
+		case WHICH_GATE_OUTPUT_IS_RUN:
+			options_.push_back(STRING_FOR_RUN_SIGNAL);
+			break;
+
+		default:
+			break;
+		}
+	}
 };
 
-} // namespace menu_item::gate
+} // namespace deluge::gui::menu_item::gate

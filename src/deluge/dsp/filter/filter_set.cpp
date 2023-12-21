@@ -15,360 +15,195 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include "processing/sound/sound.h"
 #include "dsp/filter/filter_set.h"
-#include "util/functions.h"
-#include "dsp/filter/filter_set_config.h"
+#include "definitions_cxx.hpp"
+#include "dsp/filter/filter.h"
+#include "dsp/filter/lpladder.h"
+#include "dsp/filter/svf.h"
 #include "dsp/timestretch/time_stretcher.h"
+#include "processing/sound/sound.h"
 #include "storage/storage_manager.h"
-
+#include "util/functions.h"
+namespace deluge::dsp::filter {
 FilterSet::FilterSet() {
+
+	lpsvf = SVFilter();
+	lpladder = LpLadderFilter();
+	hpladder = HpLadderFilter();
+}
+q31_t tempRenderBuffer[SSI_TX_BUFFER_NUM_SAMPLES];
+
+void FilterSet::renderHPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement) {
+	if (HPFOn) {
+		if (hpfMode_ == FilterMode::HPLADDER) {
+			hpladder.filterMono(startSample, endSample, sampleIncrement);
+		}
+		else if ((hpfMode_ == FilterMode::SVF_BAND) || (hpfMode_ == FilterMode::SVF_NOTCH)) {
+			hpsvf.filterMono(startSample, endSample, sampleIncrement);
+		}
+	}
+}
+void FilterSet::renderHPFLongStereo(q31_t* startSample, q31_t* endSample) {
+	if (HPFOn) {
+		if (hpfMode_ == FilterMode::HPLADDER) {
+			hpladder.filterStereo(startSample, endSample);
+		}
+		else if ((hpfMode_ == FilterMode::SVF_BAND) || (hpfMode_ == FilterMode::SVF_NOTCH)) {
+			hpsvf.filterStereo(startSample, endSample);
+		}
+	}
 }
 
-void FilterSet::renderHPF(q31_t* outputSample, FilterSetConfig* filterSetConfig, int extraSaturation) {
-	q31_t input = *outputSample;
+void FilterSet::renderLPFLong(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement) {
+	if (LPFOn) {
+		if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
+			lpsvf.filterMono(startSample, endSample, sampleIncrement);
+		}
+		else {
+			lpladder.filterMono(startSample, endSample, sampleIncrement);
+		}
+	}
+}
 
-	q31_t firstHPFOutput = input - hpfHPF1.doFilter(input, filterSetConfig->hpfMoveability);
+void FilterSet::renderLPFLongStereo(q31_t* startSample, q31_t* endSample) {
+	if (LPFOn) {
+		if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
 
-	q31_t feedbacksValue = hpfHPF3.getFeedbackOutput(filterSetConfig->hpfHPF3Feedback)
-	                       + hpfLPF1.getFeedbackOutput(filterSetConfig->hpfLPF1Feedback);
+			lpsvf.filterStereo(startSample, endSample);
+		}
+		else {
 
-	q31_t a =
-	    multiply_32x32_rshift32_rounded(filterSetConfig->divideByTotalMoveability, firstHPFOutput + feedbacksValue)
-	    << (4 + 1);
+			lpladder.filterStereo(startSample, endSample);
+		}
+	}
+}
+void FilterSet::renderLong(q31_t* startSample, q31_t* endSample, int32_t numSamples, int32_t sampleIncrememt) {
+	switch (routing_) {
+	case FilterRoute::HIGH_TO_LOW:
 
-	// Only saturate / anti-alias if lots of resonance
-	if (filterSetConfig->hpfProcessedResonance > 900000000) { // 890551738
-		a = getTanHAntialiased(a, &hpfLastWorkingValue, 2 + extraSaturation);
+		renderHPFLong(startSample, endSample, sampleIncrememt);
+		renderLPFLong(startSample, endSample, sampleIncrememt);
+
+		break;
+	case FilterRoute::LOW_TO_HIGH:
+
+		renderLPFLong(startSample, endSample, sampleIncrememt);
+		renderHPFLong(startSample, endSample, sampleIncrememt);
+
+		break;
+
+	case FilterRoute::PARALLEL:
+		//render one filter in the temp buffer so we can add
+		//them together
+		int32_t length = endSample - startSample;
+		memcpy(tempRenderBuffer, startSample, length * sizeof(q31_t));
+
+		renderHPFLong(tempRenderBuffer, tempRenderBuffer + length, sampleIncrememt);
+		renderLPFLong(startSample, endSample, sampleIncrememt);
+
+		for (int i = 0; i < length; i++) {
+			startSample[i] += tempRenderBuffer[i];
+		}
+		break;
+	}
+}
+//expects to receive an interleaved stereo stream
+void FilterSet::renderLongStereo(q31_t* startSample, q31_t* endSample) {
+	// Do HPF, if it's on
+	switch (routing_) {
+	case FilterRoute::HIGH_TO_LOW:
+
+		renderHPFLongStereo(startSample, endSample);
+
+		renderLPFLongStereo(startSample, endSample);
+
+		break;
+	case FilterRoute::LOW_TO_HIGH:
+
+		renderLPFLongStereo(startSample, endSample);
+
+		renderHPFLongStereo(startSample, endSample);
+
+		break;
+	case FilterRoute::PARALLEL:
+		int32_t length = endSample - startSample;
+
+		memcpy(tempRenderBuffer, startSample, length * sizeof(q31_t));
+
+		renderHPFLongStereo(tempRenderBuffer, tempRenderBuffer + length);
+
+		renderLPFLongStereo(startSample, endSample);
+
+		for (int i = 0; i < length; i++) {
+			startSample[i] += tempRenderBuffer[i];
+		}
+		break;
+	}
+}
+
+int32_t FilterSet::setConfig(int32_t lpfFrequency, int32_t lpfResonance, bool doLPF, FilterMode lpfmode, q31_t lpfMorph,
+                             int32_t hpfFrequency, int32_t hpfResonance, bool doHPF, FilterMode hpfmode, q31_t hpfMorph,
+                             int32_t filterGain, FilterRoute routing, bool adjustVolumeForHPFResonance,
+                             int32_t* overallOscAmplitude) {
+	LPFOn = doLPF;
+	HPFOn = doHPF;
+	lpfMode_ = lpfmode;
+	hpfMode_ = hpfmode;
+	routing_ = routing;
+	hpfResonance =
+	    (hpfResonance >> 21) << 21; // Insanely, having changes happen in the small bytes too often causes rustling
+
+	if (LPFOn) {
+		if ((lpfMode_ == FilterMode::SVF_BAND) || (lpfMode_ == FilterMode::SVF_NOTCH)) {
+			if (lastLPFMode_ <= kLastLadder) {
+				lpsvf.reset();
+			}
+			filterGain = lpsvf.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);
+		}
+		else {
+			if (lastLPFMode_ > kLastLadder) {
+				lpladder.reset();
+			}
+			filterGain = lpladder.configure(lpfFrequency, lpfResonance, lpfMode_, lpfMorph, filterGain);
+		}
+		lastLPFMode_ = lpfMode_;
 	}
 	else {
-		hpfLastWorkingValue = (uint32_t)lshiftAndSaturate<2>(a) + 2147483648u;
-		if (filterSetConfig->hpfProcessedResonance > 750000000) { // 400551738
-			a = getTanHUnknown(a, 2 + extraSaturation);
-		}
+		lastLPFMode_ = FilterMode::OFF;
 	}
+	// This changes the overall amplitude so that, with resonance on 50%, the amplitude is the same as it was pre June 2017
+	filterGain = multiply_32x32_rshift32(filterGain, 1720000000) << 1;
 
-	hpfLPF1.doFilter(a - hpfHPF3.doFilter(a, filterSetConfig->hpfMoveability), filterSetConfig->hpfMoveability);
-
-	a = multiply_32x32_rshift32_rounded(a, filterSetConfig->hpfDivideByProcessedResonance) << (8 - 1); // Normalization
-
-	*outputSample = a;
-}
-
-#define HPF_LONG_SATURATION 3
-
-void FilterSet::renderHPFLong(q31_t* outputSample, q31_t* endSample, FilterSetConfig* filterSetConfig, int numSamples,
-                              int sampleIncrement) {
-
-	bool needToFixSaturation = false;
-
-	if (!hpfDoingAntialiasingNow && filterSetConfig->hpfDoAntialiasing) {
-		needToFixSaturation = true;
-	}
-
-	hpfDoingAntialiasingNow = filterSetConfig->hpfDoAntialiasing;
-
-	if (!hpfOnLastTime) {
-		hpfOnLastTime = true;
-		hpfDivideByTotalMoveabilityLastTime = filterSetConfig->divideByTotalMoveability;
-		hpfDivideByProcessedResonanceLastTime = filterSetConfig->hpfDivideByProcessedResonance;
-		needToFixSaturation = true;
-		hpfHPF1.reset();
-		hpfLPF1.reset();
-		hpfHPF3.reset();
-	}
-
-	q31_t hpfDivideByTotalMoveabilityNow = hpfDivideByTotalMoveabilityLastTime;
-	q31_t hpfDivideByTotalMoveabilityIncrement =
-	    (q31_t)(filterSetConfig->divideByTotalMoveability - hpfDivideByTotalMoveabilityNow) / (q31_t)numSamples;
-	hpfDivideByTotalMoveabilityLastTime = filterSetConfig->divideByTotalMoveability;
-
-	q31_t hpfDivideByProcessedResonanceNow = hpfDivideByProcessedResonanceLastTime;
-	q31_t hpfDivideByProcessedResonanceIncrement =
-	    (q31_t)(filterSetConfig->hpfDivideByProcessedResonance - hpfDivideByProcessedResonanceNow) / (q31_t)numSamples;
-	hpfDivideByProcessedResonanceLastTime = filterSetConfig->hpfDivideByProcessedResonance;
-
-	do {
-
-		q31_t input = *outputSample;
-
-		q31_t firstHPFOutput = input - hpfHPF1.doFilter(input, filterSetConfig->hpfMoveability);
-
-		q31_t feedbacksValue = hpfHPF3.getFeedbackOutput(filterSetConfig->hpfHPF3Feedback)
-		                       + hpfLPF1.getFeedbackOutput(filterSetConfig->hpfLPF1Feedback);
-
-		hpfDivideByTotalMoveabilityNow += hpfDivideByTotalMoveabilityIncrement;
-		q31_t a = multiply_32x32_rshift32_rounded(hpfDivideByTotalMoveabilityNow, firstHPFOutput + feedbacksValue)
-		          << (4 + 1);
-
-		// Only saturate / anti-alias if lots of resonance
-		if (hpfDoingAntialiasingNow) { // 890551738
-			if (needToFixSaturation) {
-				hpfLastWorkingValue = (uint32_t)lshiftAndSaturate<HPF_LONG_SATURATION>(a) + 2147483648u;
-				needToFixSaturation = false;
-			}
-			a = getTanHAntialiased(a, &hpfLastWorkingValue, HPF_LONG_SATURATION);
-		}
-		else {
-			if (filterSetConfig->hpfProcessedResonance > 750000000) { // 400551738
-				a = getTanH<HPF_LONG_SATURATION>(a);
+	// HPF
+	if (HPFOn) {
+		if (hpfMode_ == FilterMode::HPLADDER) {
+			filterGain = hpladder.configure(hpfFrequency, hpfResonance, hpfmode, hpfMorph, filterGain);
+			if (lastHPFMode_ != hpfMode_) {
+				hpladder.reset();
 			}
 		}
-
-		hpfLPF1.doFilter(a - hpfHPF3.doFilter(a, filterSetConfig->hpfMoveability), filterSetConfig->hpfMoveability);
-
-		hpfDivideByProcessedResonanceNow += hpfDivideByProcessedResonanceIncrement;
-		a = multiply_32x32_rshift32_rounded(a, hpfDivideByProcessedResonanceNow) << (8 - 1); // Normalization
-
-		*outputSample = a;
-		outputSample += sampleIncrement;
-	} while (outputSample < endSample);
-}
-
-inline q31_t FilterSet::do24dBLPFOnSample(q31_t input, FilterSetConfig* filterSetConfig, int saturationLevel) {
-
-	// For drive filter, apply some heavily lowpassed noise to the filter frequency, to add analog-ness
-	q31_t noise = getNoise() >> 2; //storageManager.devVarA;// 2;
-	q31_t distanceToGo = noise - noiseLastValue;
-	noiseLastValue += distanceToGo >> 7; //storageManager.devVarB;
-	q31_t moveability =
-	    filterSetConfig->moveability + multiply_32x32_rshift32(filterSetConfig->moveability, noiseLastValue);
-
-	q31_t feedbacksSum = (lpfLPF1.getFeedbackOutputWithoutLshift(filterSetConfig->lpf1Feedback)
-	                      + lpfLPF2.getFeedbackOutputWithoutLshift(filterSetConfig->lpf2Feedback)
-	                      + lpfLPF3.getFeedbackOutputWithoutLshift(filterSetConfig->lpf3Feedback)
-	                      + lpfLPF4.getFeedbackOutputWithoutLshift(filterSetConfig->divideBy1PlusTannedFrequency))
-	                     << 2;
-
-	// Note: in the line above, we "should" halve filterSetConfig->divideBy1plusg to get it into the 1=1073741824 range. But it doesn't sound as good.
-	// Primarily it stops us getting to full resonance. But even if we allow further resonance increase, the sound just doesn't quite compare.
-	// Lucky I discovered this by mistake
-
-	q31_t x = multiply_32x32_rshift32_rounded(
-	              (input - (multiply_32x32_rshift32_rounded(feedbacksSum, filterSetConfig->processedResonance) << 3)),
-	              filterSetConfig->divideByTotalMoveabilityAndProcessedResonance)
-	          << 2;
-
-	// Only saturate if resonance is high enough. Surprisingly, saturation makes no audible difference until very near the point of feedback
-	if (saturationLevel) {
-		x = getTanHUnknown(x, saturationLevel);
-	}
-
-	return lpfLPF4.doFilter(
-	           lpfLPF3.doFilter(lpfLPF2.doFilter(lpfLPF1.doFilter(x, moveability), moveability), moveability),
-	           moveability)
-	       << 1;
-}
-
-inline q31_t FilterSet::doDriveLPFOnSample(q31_t input, FilterSetConfig* filterSetConfig, int extraSaturation) {
-
-	// For drive filter, apply some heavily lowpassed noise to the filter frequency, to add analog-ness
-	q31_t noise = getNoise() >> 2; //storageManager.devVarA;// 2;
-	q31_t distanceToGo = noise - noiseLastValue;
-	noiseLastValue += distanceToGo >> 7; //storageManager.devVarB;
-	q31_t moveability =
-	    filterSetConfig->moveability + multiply_32x32_rshift32(filterSetConfig->moveability, noiseLastValue);
-
-	q31_t feedbacksSum = (lpfLPF1.getFeedbackOutputWithoutLshift(filterSetConfig->lpf1Feedback)
-	                      + lpfLPF2.getFeedbackOutputWithoutLshift(filterSetConfig->lpf2Feedback)
-	                      + lpfLPF3.getFeedbackOutputWithoutLshift(filterSetConfig->lpf3Feedback)
-	                      + lpfLPF4.getFeedbackOutputWithoutLshift(filterSetConfig->divideBy1PlusTannedFrequency))
-	                     << 2;
-
-	// Note: in the line above, we "should" halve filterSetConfig->divideBy1plusg to get it into the 1=1073741824 range. But it doesn't sound as good.
-	// Primarily it stops us getting to full resonance. But even if we allow further resonance increase, the sound just doesn't quite compare.
-	// Lucky I discovered this by mistake
-
-	// Saturate feedback
-	feedbacksSum = getTanHUnknown(feedbacksSum, 6 + extraSaturation);
-
-	// We don't saturate the input anymore, because that's the place where we'd get the most aliasing!
-	q31_t x = multiply_32x32_rshift32_rounded(
-	              (input - (multiply_32x32_rshift32_rounded(feedbacksSum, filterSetConfig->processedResonance) << 3)),
-	              filterSetConfig->divideByTotalMoveabilityAndProcessedResonance)
-	          << 2;
-
-	q31_t a = lpfLPF1.doFilter(x, moveability);
-
-	q31_t b = lpfLPF2.doFilter(a, moveability);
-
-	q31_t c = lpfLPF3.doFilter(b, moveability);
-
-	q31_t d = lpfLPF4.doFilter(c, moveability) << 1;
-
-	return d;
-}
-
-void FilterSet::renderLPFLong(q31_t* startSample, q31_t* endSample, FilterSetConfig* filterSetConfig, uint8_t lpfMode,
-                              int sampleIncrement, int extraSaturation, int extraSaturationDrive) {
-
-	// This should help get rid of crackling on start / stop - but doesn't
-	if (!lpfOnLastTime) {
-		lpfOnLastTime = true;
-		lpfLPF1.reset();
-		lpfLPF2.reset();
-		lpfLPF3.reset();
-		lpfLPF4.reset();
-		svf.reset();
-	}
-
-	// Half ladder
-	if (lpfMode == LPF_MODE_12DB) {
-
-		q31_t* currentSample = startSample;
-		do {
-
-			// For drive filter, apply some heavily lowpassed noise to the filter frequency, to add analog-ness
-			q31_t noise = getNoise() >> 2; //storageManager.devVarA;// 2;
-			q31_t distanceToGo = noise - noiseLastValue;
-			noiseLastValue += distanceToGo >> 7; //storageManager.devVarB;
-			q31_t moveability =
-			    filterSetConfig->moveability + multiply_32x32_rshift32(filterSetConfig->moveability, noiseLastValue);
-
-			q31_t feedbacksSum = lpfLPF1.getFeedbackOutput(filterSetConfig->lpf1Feedback)
-			                     + lpfLPF2.getFeedbackOutput(filterSetConfig->lpf2Feedback)
-			                     + lpfLPF3.getFeedbackOutput(filterSetConfig->divideBy1PlusTannedFrequency);
-			q31_t x = multiply_32x32_rshift32_rounded(
-			              (*currentSample
-			               - (multiply_32x32_rshift32_rounded(feedbacksSum, filterSetConfig->processedResonance) << 3)),
-			              filterSetConfig->divideByTotalMoveabilityAndProcessedResonance)
-			          << 2;
-
-			// Only saturate if resonance is high enough. Surprisingly, saturation makes no audible difference until very near the point of feedback
-			if (true || filterSetConfig->processedResonance > 510000000) { // Re-check this?
-				x = getTanHUnknown(x, 1 + extraSaturation);                // Saturation
+		//otherwise it's an SVF ((lpfmode == FilterMode::SVF_BAND) || (lpfmode == FilterMode::SVF_NOTCH))
+		else {
+			//invert the morph for the HPF so it goes high-band/notch-low
+			filterGain = hpsvf.configure(hpfFrequency, hpfResonance, hpfmode, ((1 << 29) - 1) - hpfMorph, filterGain);
+			if (lastHPFMode_ != hpfMode_) {
+				hpsvf.reset();
 			}
-
-			*currentSample = lpfLPF3.doAPF(lpfLPF2.doFilter(lpfLPF1.doFilter(x, moveability), moveability), moveability)
-			                 << 1;
-
-			currentSample += sampleIncrement;
-		} while (currentSample < endSample);
+		}
+		lastHPFMode_ = hpfMode_;
+	}
+	else {
+		lastHPFMode_ = FilterMode::OFF;
 	}
 
-	// Full ladder (regular)
-	else if (lpfMode == LPF_MODE_TRANSISTOR_24DB) {
-
-		// Only saturate if resonance is high enough
-		if (filterSetConfig->processedResonance
-		    > 900000000) { // Careful - pushing this too high leads to crackling, only at the highest frequencies, and at the top of the non-saturating resonance range
-			q31_t* currentSample = startSample;
-			do {
-				*currentSample = do24dBLPFOnSample(*currentSample, filterSetConfig, 1 + extraSaturation);
-
-				currentSample += sampleIncrement;
-			} while (currentSample < endSample);
-		}
-
-		else {
-			q31_t* currentSample = startSample;
-			do {
-				*currentSample = do24dBLPFOnSample(*currentSample, filterSetConfig, 0);
-
-				currentSample += sampleIncrement;
-			} while (currentSample < endSample);
-		}
-	}
-
-	// Full ladder (drive)
-	else if (lpfMode == LPF_MODE_TRANSISTOR_24DB_DRIVE) {
-
-		if (filterSetConfig->doOversampling) {
-			q31_t* currentSample = startSample;
-			do {
-				// Linear interpolation works surprisingly well here - it doesn't lead to audible aliasing. But its big problem is that it kills the highest frequencies,
-				// which is especially noticeable when resonance is low. This is because it'll turn all your high sine waves into triangles whose fundamental is lower in amplitude.
-				// Now, if we immediately downsampled that again with no filtering, no problem, because those new really high harmonics that make it triangular are still there.
-				// But after running it through the ladder filter, those get doubly filtered out, leaving just the reduced-amplitude (fundamental) sine waves where our old ones were.
-				// So instead, we need to do just a little bit more and take one extra, previous sample into account in our interpolation. This is enough to make the HF loss inaudible
-				// - although we can still see it on the spectrum analysis.
-
-				// Insanely just doubling up our input values to oversample works better than fancy 3-sample interpolation.
-				// And even, making our "interpolated" sample just a 0 and doubling the amplitude of the actual sample works very nearly as well as this,
-				// but gives a little bit more aliasing on high notes fed in.
-
-				doDriveLPFOnSample(*currentSample, filterSetConfig, extraSaturationDrive);
-
-				// Crude downsampling - just take every second sample, with no anti-aliasing filter. Works fine cos the ladder LPF filter takes care of lots of those high harmonics!
-				q31_t outputSampleToKeep = doDriveLPFOnSample(*currentSample, filterSetConfig, extraSaturationDrive);
-
-				// Only perform the final saturation stage on this one sample, which we want to keep
-				*currentSample = getTanHUnknown(outputSampleToKeep, 3 + extraSaturationDrive);
-
-				currentSample += sampleIncrement;
-			} while (currentSample < endSample);
-		}
-
-		else {
-			q31_t* currentSample = startSample;
-			do {
-				q31_t outputSampleToKeep = doDriveLPFOnSample(*currentSample, filterSetConfig, extraSaturationDrive);
-				*currentSample = getTanHUnknown(outputSampleToKeep, 3 + extraSaturationDrive);
-
-				currentSample += sampleIncrement;
-			} while (currentSample < endSample);
-		}
-	}
-	else if (lpfMode == LPF_MODE_SVF) {
-
-		q31_t* currentSample = startSample;
-		do {
-			SVF_outs outs = svf.doSVF(*currentSample, filterSetConfig);
-			*currentSample = outs.lpf << 1;
-
-			currentSample += sampleIncrement;
-		} while (currentSample < endSample);
-	}
+	return filterGain;
 }
 
 void FilterSet::reset() {
-	lpfLPF1.reset();
-	lpfLPF2.reset();
-	lpfLPF3.reset();
-	lpfLPF4.reset();
-
-	hpfHPF1.reset();
-	hpfLPF1.reset();
-	hpfHPF3.reset();
-	hpfLastWorkingValue = 2147483648;
-	hpfDoingAntialiasingNow = false;
-	hpfOnLastTime = false;
-	svf.reset();
-	lpfOnLastTime = false;
+	hpladder.reset();
+	lpsvf.reset();
+	hpsvf.reset();
+	lpladder.reset();
 	noiseLastValue = 0;
 }
-
-SVF_outs SVFilter::doSVF(int32_t input, FilterSetConfig* filterSetConfig) {
-	q31_t high = 0;
-	q31_t notch = 0;
-	q31_t lowi;
-	q31_t f = filterSetConfig->moveability;
-	q31_t q = filterSetConfig->processedResonance;
-	q31_t in = filterSetConfig->SVFInputScale;
-
-	input = multiply_32x32_rshift32(in, input);
-
-	low = low + 2 * multiply_32x32_rshift32(band, f);
-	high = input - low;
-	high = high - 2 * multiply_32x32_rshift32(band, q);
-	band = 2 * multiply_32x32_rshift32(high, f) + band;
-	notch = high + low;
-
-	//saturate band feedback
-	band = getTanHUnknown(band, 3);
-
-	lowi = low;
-	//double sample to increase the cutoff frequency
-	low = low + 2 * multiply_32x32_rshift32(band, f);
-	high = input - low;
-	high = high - 2 * multiply_32x32_rshift32(band, q);
-	band = 2 * multiply_32x32_rshift32(high, f) + band;
-
-	//saturate band feedback
-	band = getTanHUnknown(band, 3);
-	notch = high + low;
-
-	SVF_outs result = {(lowi) + (low), band, high, notch};
-
-	return result;
-}
+} // namespace deluge::dsp::filter

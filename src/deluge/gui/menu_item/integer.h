@@ -19,28 +19,27 @@
 
 #include "number.h"
 
-namespace menu_item {
+namespace deluge::gui::menu_item {
 
 class Integer : public Number {
 public:
 	using Number::Number;
-	void selectEncoderAction(int offset) override;
+	void selectEncoderAction(int32_t offset) override;
 
 protected:
-#if HAVE_OLED
 	void drawPixelsForOled();
-	virtual void drawInteger(int textWidth, int textHeight, int yPixel);
-#else
+	virtual void drawInteger(int32_t textWidth, int32_t textHeight, int32_t yPixel);
+
+	// 7Seg Only
 	void drawValue() override;
-#endif
 };
 
 class IntegerWithOff : public Integer {
 public:
 	using Integer::Integer;
-#if !HAVE_OLED
+
+	// 7Seg Only
 	void drawValue() override;
-#endif
 };
 
 class IntegerContinuous : public Integer {
@@ -48,9 +47,7 @@ public:
 	using Integer::Integer;
 
 protected:
-#if HAVE_OLED
 	void drawPixelsForOled();
-#endif
 };
 
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

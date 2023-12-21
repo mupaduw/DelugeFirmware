@@ -20,27 +20,27 @@
 #include "number.h"
 #include "patched_param.h"
 
-namespace menu_item {
+namespace deluge::gui::menu_item {
 
 class Decimal : public Number {
 public:
-	Decimal(char const* newName = NULL) : Number(newName) {}
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
-	void selectEncoderAction(int offset) final;
-	void horizontalEncoderAction(int offset);
+	using Number::Number;
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override;
+	void selectEncoderAction(int32_t offset) final;
+	void horizontalEncoderAction(int32_t offset) override;
 
 protected:
-	void drawValue();
-	virtual int getNumDecimalPlaces() const = 0;
-	virtual int getDefaultEditPos() const { return 2; }
-#if HAVE_OLED
+	virtual void drawValue();
+	[[nodiscard]] virtual int32_t getNumDecimalPlaces() const = 0;
+	[[nodiscard]] virtual int32_t getDefaultEditPos() const { return 2; }
+
 	void drawPixelsForOled();
-#else
+
+	// 7Seg Only
 	virtual void drawActualValue(bool justDidHorizontalScroll = false);
-#endif
 
 private:
 	void scrollToGoodPos();
 };
 
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

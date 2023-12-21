@@ -17,25 +17,48 @@
 
 #pragma once
 
+#include "definitions.h"
+#include "gui/menu_item/menu_item.h"
+#include "gui/ui/sound_editor.h"
+#include "hid/display/display.h"
 #include "menu_item.h"
+#include "model/clip/instrument_clip.h"
+#include "model/instrument/instrument.h"
+#include "model/song/song.h"
+#include "processing/engines/audio_engine.h"
+#include "processing/sound/sound.h"
+#include "processing/sound/sound_drum.h"
+#include "util/container/static_vector.hpp"
+#include <array>
+#include <initializer_list>
+#include <span>
 
-namespace menu_item {
+namespace deluge::gui::menu_item {
 
 class Submenu : public MenuItem {
 public:
-	Submenu(char const* newName = NULL, MenuItem** newItems = NULL) : MenuItem(newName) { items = newItems; }
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
+	Submenu(l10n::String newName, std::initializer_list<MenuItem*> newItems) : MenuItem(newName), items{newItems} {}
+	Submenu(l10n::String newName, std::span<MenuItem*> newItems)
+	    : MenuItem(newName), items{newItems.begin(), newItems.end()} {}
+	Submenu(l10n::String newName, l10n::String title, std::initializer_list<MenuItem*> newItems)
+	    : MenuItem(newName, title), items{newItems} {}
+
+	Submenu(l10n::String newName, l10n::String title, std::span<MenuItem*> newItems)
+	    : MenuItem(newName, title), items{newItems.begin(), newItems.end()} {}
+
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override;
 	void updateDisplay();
-	void selectEncoderAction(int offset) final;
+	void selectEncoderAction(int32_t offset) final;
 	MenuItem* selectButtonPress() final;
 	void readValueAgain() final { updateDisplay(); }
 	void unlearnAction() final;
 	bool allowsLearnMode() final;
-	void learnKnob(MIDIDevice* fromDevice, int whichKnob, int modKnobMode, int midiChannel) final;
-	bool learnNoteOn(MIDIDevice* fromDevice, int channel, int noteCode) final;
-	void drawPixelsForOled();
+	void learnKnob(MIDIDevice* fromDevice, int32_t whichKnob, int32_t modKnobMode, int32_t midiChannel) final;
+	bool learnNoteOn(MIDIDevice* fromDevice, int32_t channel, int32_t noteCode) final;
+	void drawPixelsForOled() override;
 
-	MenuItem** items;
+	std::vector<MenuItem*> items;
+	typename decltype(items)::iterator current_item_;
 };
 
-} // namespace menu_item
+} // namespace deluge::gui::menu_item

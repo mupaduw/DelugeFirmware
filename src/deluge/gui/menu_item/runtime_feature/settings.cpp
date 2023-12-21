@@ -15,40 +15,74 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include "setting.h"
 #include "settings.h"
+#include "devSysexSetting.h"
+#include "setting.h"
+#include "shift_is_sticky.h"
 
 #include "gui/ui/sound_editor.h"
-#include "hid/display/numeric_driver.h"
-#include "model/settings/runtime_feature_settings.h"
-
+#include "hid/display/display.h"
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <iterator>
-#include <array>
 
-extern menu_item::runtime_feature::Setting runtimeFeatureSettingMenuItem;
+extern deluge::gui::menu_item::runtime_feature::Setting runtimeFeatureSettingMenuItem;
 
-namespace menu_item::runtime_feature {
+namespace deluge::gui::menu_item::runtime_feature {
 
 // Generic menu item instances
 Setting menuDrumRandomizer(RuntimeFeatureSettingType::DrumRandomizer);
-Setting menuMasterCompressorFx(RuntimeFeatureSettingType::MasterCompressorFx);
 Setting menuFineTempo(RuntimeFeatureSettingType::FineTempoKnob);
 Setting menuQuantize(RuntimeFeatureSettingType::Quantize);
 Setting menuPatchCableResolution(RuntimeFeatureSettingType::PatchCableResolution);
+Setting menuCatchNotes(RuntimeFeatureSettingType::CatchNotes);
+Setting menuDeleteUnusedKitRows(RuntimeFeatureSettingType::DeleteUnusedKitRows);
+Setting menuAltGoldenKnobDelayParams(RuntimeFeatureSettingType::AltGoldenKnobDelayParams);
+Setting menuQuantizedStutterRate(RuntimeFeatureSettingType::QuantizedStutterRate);
+Setting menuAutomationInterpolate(RuntimeFeatureSettingType::AutomationInterpolate);
+Setting menuAutomationClearClip(RuntimeFeatureSettingType::AutomationClearClip);
+Setting menuAutomationNudgeNote(RuntimeFeatureSettingType::AutomationNudgeNote);
+Setting menuAutomationShiftClip(RuntimeFeatureSettingType::AutomationShiftClip);
+Setting menuAutomationDisableAuditionPadShortcuts(RuntimeFeatureSettingType::AutomationDisableAuditionPadShortcuts);
+Setting menuSyncScalingAction(RuntimeFeatureSettingType::SyncScalingAction);
+DevSysexSetting menuDevSysexAllowed(RuntimeFeatureSettingType::DevSysexAllowed);
+Setting menuHighlightIncomingNotes(RuntimeFeatureSettingType::HighlightIncomingNotes);
+Setting menuDisplayNornsLayout(RuntimeFeatureSettingType::DisplayNornsLayout);
+ShiftIsSticky menuShiftIsSticky{};
+Setting menuLightShiftLed(RuntimeFeatureSettingType::LightShiftLed);
+Setting menuEnableGrainFX(RuntimeFeatureSettingType::EnableGrainFX);
 
-std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement + 1> subMenuEntries{
+Submenu subMenuAutomation{
+    l10n::String::STRING_FOR_COMMUNITY_FEATURE_AUTOMATION,
+    {
+        &menuAutomationInterpolate,
+        &menuAutomationClearClip,
+        &menuAutomationNudgeNote,
+        &menuAutomationShiftClip,
+        &menuAutomationDisableAuditionPadShortcuts,
+    },
+};
+
+std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings> subMenuEntries{
     &menuDrumRandomizer,
-    &menuMasterCompressorFx,
     &menuFineTempo,
     &menuQuantize,
     &menuPatchCableResolution,
+    &menuCatchNotes,
+    &menuDeleteUnusedKitRows,
+    &menuAltGoldenKnobDelayParams,
+    &menuQuantizedStutterRate,
+    &subMenuAutomation,
+    &menuDevSysexAllowed,
+    &menuSyncScalingAction,
+    &menuHighlightIncomingNotes,
+    &menuDisplayNornsLayout,
+    &menuShiftIsSticky,
+    &menuLightShiftLed,
+    &menuEnableGrainFX};
 
-    nullptr,
-};
-
-Settings::Settings(char const* name) : menu_item::Submenu(name, &subMenuEntries[0]) {
+Settings::Settings(l10n::String name, l10n::String title) : menu_item::Submenu(name, title, subMenuEntries) {
 }
 
-} // namespace menu_item::runtime_feature
+} // namespace deluge::gui::menu_item::runtime_feature

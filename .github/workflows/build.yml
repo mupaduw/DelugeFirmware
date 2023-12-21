@@ -1,26 +1,33 @@
 name: Build
 
 on:
-  push:
-    branches:
-      - 'community'
-      - 'synthstrom-official'
-  pull_request:
-    branches:
-      - 'community'
-  merge_group:
-  workflow_dispatch:
-
-env:
-  FIRMWARE_RETENTION_DAYS: 5
+  workflow_call:
+    inputs:
+      firmware-retention-days:
+        required: true
+        type: number
+      build-type:
+        required: true
+        type: string
 
 jobs:
   build:
-    name: Build ${{ matrix.profile }}-${{ matrix.hardware }}
+    name: Build
     runs-on: ubuntu-latest
     steps:
-      - name: check out repo
+      - name: normal check out repo
+        if: inputs.build-type != 'nightly' && inputs.build-type != 'release'
         uses: actions/checkout@v3
+      - name: nightly check out repo
+        if: inputs.build-type == 'nightly'
+        uses: actions/checkout@v3
+        with:
+          ref: 'community'
+      - name: release check out repo
+        if: inputs.build-type == 'release'
+        uses: actions/checkout@v3
+        with:
+          ref: 'release/1.0'
       - name: Fetch container image
         run: |
           docker pull ghcr.io/litui/dbt-toolchain:v$(cat toolchain/REQUIRED_VERSION)
@@ -28,45 +35,66 @@ jobs:
         run: |
           docker run --rm \
             --user=$(id --user):$(id --group) \
+            -e DBT_NO_PYTHON_UPGRADE=1 \
             -v $(pwd):/src \
             ghcr.io/litui/dbt-toolchain:v$(cat toolchain/REQUIRED_VERSION) \
             build \
-            --spew \
+            --verbose \
+            --tag-metadata \
+            --type ${{ inputs.build-type }} \
             all
 
-      - name: Publish built firmware (7seg-debug) (bin)
+      - name: Publish built firmware (debug-bin)
         uses: actions/upload-artifact@v3
         with:
-          name: debug-7seg.bin
-          path: dbt-build-debug-7seg/Deluge-debug-7seg.bin
+          name: debug.bin
+          path: build/Debug/deluge*.bin
           if-no-files-found: error
-          retention-days: ${{ env.FIRMWARE_RETENTION_DAYS }}
-      - name: Publish built firmware (7seg-release) (bin)
+          retention-days: ${{ inputs.firmware-retention-days }}
+      - name: Publish built firmware (release-bin)
         uses: actions/upload-artifact@v3
         with:
-          name: release-7seg.bin
-          path: dbt-build-release-7seg/Deluge-release-7seg.bin
+          name: release.bin
+          path: build/Release/deluge*.bin
           if-no-files-found: error
-          retention-days: ${{ env.FIRMWARE_RETENTION_DAYS }}
-      - name: Publish built firmware (oled-debug) (bin)
-        uses: actions/upload-artifact@v3
-        with:
-          name: debug-oled.bin
-          path: dbt-build-debug-oled/Deluge-debug-oled.bin
-          if-no-files-found: error
-          retention-days: ${{ env.FIRMWARE_RETENTION_DAYS }}
-      - name: Publish built firmware (oled-release) (bin)
-        uses: actions/upload-artifact@v3
-        with:
-          name: release-oled.bin
-          path: dbt-build-release-oled/Deluge-release-oled.bin
-          if-no-files-found: error
-          retention-days: ${{ env.FIRMWARE_RETENTION_DAYS }}
-
+          retention-days: ${{ inputs.firmware-retention-days }}
       - name: Publish built firmware (elf)
         uses: actions/upload-artifact@v3
         with:
           name: all-elfs
-          path: dbt-build-*/*.elf
+          path: build/*/deluge*.elf
           if-no-files-found: error
-          retention-days: ${{ env.FIRMWARE_RETENTION_DAYS }}
+          retention-days: ${{ inputs.firmware-retention-days }}
+
+      - name: Create nightlies archive
+        if: inputs.build-type == 'nightly'
+        run: |
+          zip -j ./nightly.zip build/Release/deluge*.bin
+      - name: Deploy nightly zip to releases
+        if: inputs.build-type == 'nightly'
+        uses: WebFreak001/deploy-nightly@v2.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # automatically provided by github actions
+        with:
+          upload_url: https://uploads.github.com/repos/SynthstromAudible/DelugeFirmware/releases/117673232/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
+          release_id: 117673232 # same as above (id can just be taken out the upload_url, it's used to find old releases)
+          asset_path: ./nightly.zip # path to archive to upload
+          asset_name: deluge-nightly.zip # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
+          asset_content_type: application/zip # required by GitHub API
+          max_releases: 30 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
+      - name: Create release archive
+        if: inputs.build-type == 'release'
+        run: |
+          zip -j ./release.zip build/Release/deluge*.bin
+      - name: Deploy release zip to releases
+        if: inputs.build-type == 'release'
+        uses: WebFreak001/deploy-nightly@v2.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # automatically provided by github actions
+        with:
+          upload_url: https://uploads.github.com/repos/SynthstromAudible/DelugeFirmware/releases/123368988/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
+          release_id: 123368988 # same as above (id can just be taken out the upload_url, it's used to find old releases)
+          asset_path: ./release.zip # path to archive to upload
+          asset_name: deluge-community-release.zip # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
+          asset_content_type: application/zip # required by GitHub API
+          max_releases: 30 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted

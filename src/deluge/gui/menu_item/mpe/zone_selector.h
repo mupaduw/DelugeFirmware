@@ -17,24 +17,29 @@
 
 #pragma once
 
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
 
-namespace menu_item::mpe {
+namespace deluge::gui::menu_item::mpe {
 
 class ZoneSelector final : public Selection {
 public:
-	ZoneSelector(char const* newName = NULL) : Selection(newName) {}
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
-	char const** getOptions();
-	void readCurrentValue();
-	void writeCurrentValue();
-	MenuItem* selectButtonPress();
-	uint8_t whichZone;
+	using Selection::Selection;
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override;
+	void readCurrentValue() override { this->setValue(whichZone); }
+	void writeCurrentValue() override { whichZone = this->getValue(); }
 
-#if HAVE_OLED
-	char const* getTitle(char* buffer);
-#endif
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {
+		    l10n::getView(STRING_FOR_LOWER_ZONE),
+		    l10n::getView(STRING_FOR_UPPER_ZONE),
+		};
+	}
+
+	MenuItem* selectButtonPress() override;
+	uint8_t whichZone;
 };
 
 extern ZoneSelector zoneSelectorMenu;
-} // namespace menu_item::mpe
+} // namespace deluge::gui::menu_item::mpe

@@ -15,30 +15,23 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "model/mod_controllable/mod_controllable_audio.h"
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
 #include "gui/menu_item/sync_level.h"
 #include "gui/ui/sound_editor.h"
+#include "model/mod_controllable/mod_controllable_audio.h"
 
-namespace menu_item::delay {
+namespace deluge::gui::menu_item::delay {
 
 class Analog final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() { soundEditor.currentValue = soundEditor.currentModControllable->delay.analog; }
-	void writeCurrentValue() { soundEditor.currentModControllable->delay.analog = soundEditor.currentValue; }
-	char const** getOptions() {
-		static char const* options[] = {
-			"Digital",
-#if HAVE_OLED
-			"Analog",
-			NULL
-#else
-			"ANA"
-#endif
-		};
-		return options;
+	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->delay.analog); }
+	void writeCurrentValue() override { soundEditor.currentModControllable->delay.analog = this->getValue(); }
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {l10n::getView(STRING_FOR_DIGITAL), l10n::getView(STRING_FOR_ANALOG)};
 	}
 };
 
-} // namespace menu_item::delay
+} // namespace deluge::gui::menu_item::delay

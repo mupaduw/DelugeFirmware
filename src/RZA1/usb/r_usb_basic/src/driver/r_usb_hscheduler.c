@@ -29,8 +29,8 @@
  Includes   <System Includes> , "Project Includes"
  ***********************************************************************************************************************/
 #include "RZA1/usb/r_usb_basic/r_usb_basic_if.h"
-#include "RZA1/usb/r_usb_basic/src/driver/inc/r_usb_typedef.h"
 #include "RZA1/usb/r_usb_basic/src/driver/inc/r_usb_extern.h"
+#include "RZA1/usb/r_usb_basic/src/driver/inc/r_usb_typedef.h"
 
 #if ((USB_CFG_DTC == USB_CFG_ENABLE) || (USB_CFG_DMA == USB_CFG_ENABLE))
 #include "drivers/usb/r_usb_basic/src/hw/inc/r_usb_dmac.h"
@@ -118,7 +118,7 @@ usb_er_t usb_cstd_snd_msg(uint8_t id, usb_msg_t* mess)
 
 /***********************************************************************************************************************
  Function Name   : usb_cstd_isnd_msg
- Description     : Send a message to the specified id (mailbox) while executing 
+ Description     : Send a message to the specified id (mailbox) while executing
                  : an interrupt.
  Argument        : uint8_t      id           : ID number (mailbox).
                  : usb_msg_t    *mess        : Message pointer
@@ -226,7 +226,7 @@ usb_err_t usb_cstd_rel_blk(uint8_t id, usb_utr_t* blk)
 
 /***********************************************************************************************************************
  Function Name   : usb_cstd_wai_msg
- Description     : Runs USB_SND_MSG after running the scheduler the specified 
+ Description     : Runs USB_SND_MSG after running the scheduler the specified
                  : number of times.
  Argument        : uint8_t      id           : ID number (mailbox).
                  : usb_msg_t    *mess        : Message pointer

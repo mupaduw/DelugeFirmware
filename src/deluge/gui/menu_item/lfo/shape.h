@@ -15,19 +15,28 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
 #include "gui/menu_item/selection.h"
+#include <string>
 
-namespace menu_item::lfo {
+namespace deluge::gui::menu_item::lfo {
 
 class Shape : public Selection {
 public:
 	using Selection::Selection;
 
-	char const** getOptions() {
-		static char const* options[] = {"Sine", "Triangle", "Square", "Saw", "S&H", "Random Walk", NULL};
-		return options;
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {
+		    l10n::getView(STRING_FOR_SINE),
+		    l10n::getView(STRING_FOR_TRIANGLE),
+		    l10n::getView(STRING_FOR_SQUARE),
+		    l10n::getView(STRING_FOR_SAW),
+		    l10n::getView(STRING_FOR_SAMPLE_AND_HOLD),
+		    l10n::getView(STRING_FOR_RANDOM_WALK),
+		};
 	}
-	int getNumOptions() { return NUM_LFO_TYPES; }
 };
 
-} // namespace menu_item::lfo
+} // namespace deluge::gui::menu_item::lfo

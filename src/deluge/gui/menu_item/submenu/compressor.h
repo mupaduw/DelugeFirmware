@@ -16,17 +16,23 @@
 */
 #pragma once
 #include "gui/menu_item/submenu.h"
+#include "gui/ui/sound_editor.h"
+#include "processing/engines/audio_engine.h"
+#include "processing/sound/sound.h"
 
-namespace menu_item::submenu {
-
+namespace deluge::gui::menu_item::submenu {
 class Compressor final : public Submenu {
 public:
-	Compressor() {}
-	Compressor(char const* newName, MenuItem** newItems, bool newForReverbCompressor) : Submenu(newName, newItems) {
-		forReverbCompressor = newForReverbCompressor;
+	Compressor(l10n::String newName, l10n::String title, std::initializer_list<MenuItem*> newItems,
+	           bool newForReverbCompressor)
+	    : Submenu(newName, title, newItems), forReverbCompressor(newForReverbCompressor) {}
+	void beginSession(MenuItem* navigatedBackwardFrom = nullptr) override {
+		soundEditor.currentCompressor =
+		    forReverbCompressor ? &AudioEngine::reverbCompressor : &soundEditor.currentSound->compressor;
+		Submenu::beginSession(navigatedBackwardFrom);
 	}
-	void beginSession(MenuItem* navigatedBackwardFrom = NULL);
 
 	bool forReverbCompressor;
 };
-} // namespace menu_item::submenu
+
+} // namespace deluge::gui::menu_item::submenu

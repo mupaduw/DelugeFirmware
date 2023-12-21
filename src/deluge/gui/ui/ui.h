@@ -17,14 +17,15 @@
 
 #pragma once
 
+#include "definitions_cxx.hpp"
 #include "hid/button.h"
-#include "definitions.h"
 
 class RootUI;
 class ClipMinder;
 class MIDIDevice;
 
 extern uint32_t currentUIMode;
+extern bool pendingUIRenderingLock;
 
 // Exclusive UI modes - only one of these can be active at a time.
 #define UI_MODE_NONE 0
@@ -69,6 +70,7 @@ extern uint32_t currentUIMode;
 #define UI_MODE_PATCHING_SOURCE_HOLDING_BUTTON_DOWN 59
 #define UI_MODE_MACRO_SETTING_UP 60
 #define UI_MODE_DRAGGING_KIT_NOTEROW 61
+#define UI_MODE_HOLDING_STATUS_PAD 62
 
 #define EXCLUSIVE_UI_MODES_MASK ((uint32_t)255)
 
@@ -82,27 +84,32 @@ class UI {
 public:
 	UI();
 
-	virtual int padAction(int x, int y, int velocity) { return ACTION_RESULT_DEALT_WITH; }
-	virtual int buttonAction(hid::Button b, bool on, bool inCardRoutine) { return ACTION_RESULT_NOT_DEALT_WITH; }
-	virtual int horizontalEncoderAction(int offset) { return ACTION_RESULT_DEALT_WITH; }
-	virtual int verticalEncoderAction(int offset, bool inCardRoutine) { return ACTION_RESULT_DEALT_WITH; }
+	virtual ActionResult padAction(int32_t x, int32_t y, int32_t velocity) { return ActionResult::DEALT_WITH; }
+	virtual ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
+		return ActionResult::NOT_DEALT_WITH;
+	}
+	virtual ActionResult horizontalEncoderAction(int32_t offset) { return ActionResult::DEALT_WITH; }
+	virtual ActionResult verticalEncoderAction(int32_t offset, bool inCardRoutine) { return ActionResult::DEALT_WITH; }
 	virtual void selectEncoderAction(int8_t offset) {}
-	virtual void modEncoderAction(int whichModEncoder, int offset);
+	virtual void modEncoderAction(int32_t whichModEncoder, int32_t offset);
 	virtual void modButtonAction(uint8_t whichButton, bool on);
 	virtual void modEncoderButtonAction(uint8_t whichModEncoder, bool on);
 
 	virtual void graphicsRoutine();
-	virtual int timerCallback() { return ACTION_RESULT_DEALT_WITH; }
+	virtual ActionResult timerCallback() { return ActionResult::DEALT_WITH; }
 
 	virtual bool opened() {
 		focusRegained();
 		return true;
 	}
+
 	virtual void focusRegained() {}
+	// the `display` and/or `chosenLanguage` object changed. redraw accordingly.
+	virtual void displayOrLanguageChanged() {}
 	virtual bool canSeeViewUnderneath() { return false; }
 	virtual ClipMinder* toClipMinder() { return NULL; }
 	virtual void scrollFinished() {}
-	virtual bool noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int channel, int note, int velocity) {
+	virtual bool noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int32_t channel, int32_t note, int32_t velocity) {
 		return false;
 	} // Returns whether it was used, I think?
 
@@ -113,28 +120,26 @@ public:
 	// When these return false it means they're transparent, showing what's underneath.
 	// These *must* check whether image has been supplied - if not, just return, saying whether opaque or not.
 	// Cos we need to be able to quiz these without actually getting any rendering done.
-	virtual bool renderMainPads(uint32_t whichRows = 0, uint8_t image[][displayWidth + sideBarWidth][3] = NULL,
-	                            uint8_t occupancyMask[][displayWidth + sideBarWidth] = NULL,
+	virtual bool renderMainPads(uint32_t whichRows = 0, uint8_t image[][kDisplayWidth + kSideBarWidth][3] = NULL,
+	                            uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth] = NULL,
 	                            bool drawUndefinedArea = true) {
 		return false;
 	}
-	virtual bool renderSidebar(uint32_t whichRows = 0, uint8_t image[][displayWidth + sideBarWidth][3] = NULL,
-	                           uint8_t occupancyMask[][displayWidth + sideBarWidth] = NULL) {
+	virtual bool renderSidebar(uint32_t whichRows = 0, uint8_t image[][kDisplayWidth + kSideBarWidth][3] = NULL,
+	                           uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth] = NULL) {
 		return false;
 	}
 
 	void close();
 
-#if HAVE_OLED
 	virtual void renderOLED(uint8_t image[][OLED_MAIN_WIDTH_PIXELS]) = 0;
 	bool oledShowsUIUnderneath;
-#endif
 };
 
 // UIs
 UI* getCurrentUI();
 RootUI* getRootUI();
-UI* getUIUpOneLevel(int numLevelsUp);
+UI* getUIUpOneLevel(int32_t numLevelsUp);
 static UI* getUIUpOneLevel() {
 	return getUIUpOneLevel(1);
 }
@@ -142,7 +147,7 @@ void closeUI(UI* ui);
 bool openUI(UI* newUI);
 void changeRootUI(UI* newUI);
 bool changeUISideways(UI* newUI);
-bool changeUIAtLevel(UI* newUI, int level);
+bool changeUIAtLevel(UI* newUI, int32_t level);
 bool isUIOpen(UI* ui);
 void setRootUILowLevel(UI* newUI);
 void swapOutRootUILowLevel(UI* newUI);
@@ -157,9 +162,7 @@ void clearPendingUIRendering();
 
 void doAnyPendingUIRendering();
 
-#if HAVE_OLED
 void renderUIsForOled();
-#endif
 
 // UI modes
 bool isUIModeActive(uint32_t uiMode);

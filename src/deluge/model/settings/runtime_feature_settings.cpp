@@ -16,13 +16,13 @@
  */
 
 #include "runtime_feature_settings.h"
-#include <cstring>
-#include <new>
-#include <stdio.h>
-#include <string.h>
-
-#include "hid/display/numeric_driver.h"
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
+#include "hid/display/display.h"
 #include "storage/storage_manager.h"
+#include "util/d_string.h"
+#include <cstring>
+#include <string_view>
 
 #define RUNTIME_FEATURE_SETTINGS_FILE "CommunityFeatures.XML"
 #define TAG_RUNTIME_FEATURE_SETTINGS "runtimeFeatureSettings"
@@ -32,7 +32,7 @@
 
 /// Unknown Settings container
 struct UnknownSetting {
-	String name;
+	std::string_view name;
 	uint32_t value;
 };
 
@@ -41,44 +41,125 @@ RuntimeFeatureSettings runtimeFeatureSettings{};
 RuntimeFeatureSettings::RuntimeFeatureSettings() : unknownSettings(sizeof(UnknownSetting)) {
 }
 
-static void SetupOnOffSetting(RuntimeFeatureSetting& setting, char const* const displayName, char const* const xmlName,
+static void SetupOnOffSetting(RuntimeFeatureSetting& setting, std::string_view displayName, std::string_view xmlName,
                               RuntimeFeatureStateToggle def) {
 	setting.displayName = displayName;
 	setting.xmlName = xmlName;
 	setting.value = static_cast<uint32_t>(def);
 
-	setting.options[0] = {
-	    .displayName = "Off",
-	    .value = RuntimeFeatureStateToggle::Off,
+	setting.options = {
+	    {
+	        .displayName = "Off",
+	        .value = RuntimeFeatureStateToggle::Off,
+	    },
+	    {
+	        .displayName = "On",
+	        .value = RuntimeFeatureStateToggle::On,
+	    },
 	};
+}
 
-	setting.options[1] = {
-	    .displayName = "On",
-	    .value = RuntimeFeatureStateToggle::On,
-	};
+static void SetupSyncScalingActionSetting(RuntimeFeatureSetting& setting, std::string_view displayName,
+                                          std::string_view xmlName, RuntimeFeatureStateSyncScalingAction def) {
+	setting.displayName = displayName;
+	setting.xmlName = xmlName;
+	setting.value = static_cast<uint32_t>(def);
 
-	setting.options[2] = {
-	    .displayName = NULL,
-	    .value = 0,
+	setting.options = {
+	    {
+	        .displayName = display->haveOLED() ? "Sync Scaling" : "SCAL",
+	        .value = RuntimeFeatureStateSyncScalingAction::SyncScaling,
+	    },
+	    {
+	        .displayName = display->haveOLED() ? "Fill mode" : "FILL",
+	        .value = RuntimeFeatureStateSyncScalingAction::Fill,
+	    },
 	};
 }
 
 void RuntimeFeatureSettings::init() {
+	using enum deluge::l10n::String;
 	// Drum randomizer
-	SetupOnOffSetting(settings[RuntimeFeatureSettingType::DrumRandomizer], "Drum Randomizer", "drumRandomizer",
-	                  RuntimeFeatureStateToggle::On);
-	// Master compressor
-	SetupOnOffSetting(settings[RuntimeFeatureSettingType::MasterCompressorFx], "Master Compressor", "masterCompressor",
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::DrumRandomizer],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_DRUM_RANDOMIZER), "drumRandomizer",
 	                  RuntimeFeatureStateToggle::On);
 	// Quantize
-	SetupOnOffSetting(settings[RuntimeFeatureSettingType::Quantize], "Quantize", "quantize",
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::Quantize],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_QUANTIZE), "quantize",
 	                  RuntimeFeatureStateToggle::On);
 	// FineTempoKnob
-	SetupOnOffSetting(settings[RuntimeFeatureSettingType::FineTempoKnob], "Fine Tempo Knob", "fineTempoknob",
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::FineTempoKnob],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_FINE_TEMPO_KNOB), "fineTempoKnob",
 	                  RuntimeFeatureStateToggle::On);
 	// PatchCableResolution
-	SetupOnOffSetting(settings[RuntimeFeatureSettingType::PatchCableResolution], "Mod. depth decimals",
-	                  "ModDepthDecimals", RuntimeFeatureStateToggle::On);
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::PatchCableResolution],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_MOD_DEPTH_DECIMALS), "modDepthDecimals",
+	                  RuntimeFeatureStateToggle::On);
+	// CatchNotes
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::CatchNotes],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_CATCH_NOTES), "catchNotes",
+	                  RuntimeFeatureStateToggle::On);
+	// DeleteUnusedKitRows
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::DeleteUnusedKitRows],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_DELETE_UNUSED_KIT_ROWS), "deleteUnusedKitRows",
+	                  RuntimeFeatureStateToggle::On);
+	// AltGoldenKnobDelayParams
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AltGoldenKnobDelayParams],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_ALT_DELAY_PARAMS), "altGoldenKnobDelayParams",
+	                  RuntimeFeatureStateToggle::Off);
+	// QuantizedStutterRate
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::QuantizedStutterRate],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_QUANTIZED_STUTTER), "quantizedStutterRate",
+	                  RuntimeFeatureStateToggle::Off);
+	// InterpolateAutomation
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AutomationInterpolate],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_AUTOMATION_INTERPOLATION),
+	                  "automationInterpolate", RuntimeFeatureStateToggle::On);
+	// ClearClipAutomation
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AutomationClearClip],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_AUTOMATION_CLEAR_CLIP), "automationClearClip",
+	                  RuntimeFeatureStateToggle::On);
+	// NudgeNoteAutomation
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AutomationNudgeNote],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_AUTOMATION_NUDGE_NOTE), "automationNudgeNote",
+	                  RuntimeFeatureStateToggle::On);
+	// ShiftNoteAutomation
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AutomationShiftClip],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_AUTOMATION_SHIFT_CLIP), "automationShiftClip",
+	                  RuntimeFeatureStateToggle::On);
+	// Disable Audition Pad Shortcuts in Automation View
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AutomationDisableAuditionPadShortcuts],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_AUTOMATION_DISABLE_AUDITION_PAD_SHORTCUTS),
+	                  "automationDisableAuditionPadShortcuts", RuntimeFeatureStateToggle::On);
+	// devSysexAllowed
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::DevSysexAllowed],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_DEV_SYSEX), "devSysexAllowed",
+	                  RuntimeFeatureStateToggle::Off);
+	// SyncScalingAction
+	SetupSyncScalingActionSetting(settings[RuntimeFeatureSettingType::SyncScalingAction],
+	                              deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_SYNC_SCALING_ACTION),
+	                              "syncScalingAction", RuntimeFeatureStateSyncScalingAction::SyncScaling);
+	// HighlightIncomingNotes
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::HighlightIncomingNotes],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_HIGHLIGHT_INCOMING_NOTES),
+	                  "highlightIncomingNotes", RuntimeFeatureStateToggle::On);
+	// DisplayNornsLayout
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::DisplayNornsLayout],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_NORNS_LAYOUT), "displayNornsLayout",
+	                  RuntimeFeatureStateToggle::Off);
+
+	// ShiftIsSticky
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::ShiftIsSticky], "Sticky Shift", "stickyShift",
+	                  RuntimeFeatureStateToggle::Off);
+
+	// LightShiftLed
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::LightShiftLed], "Light Shift", "lightShift",
+	                  RuntimeFeatureStateToggle::Off);
+
+	// EnableGrainFX
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::EnableGrainFX],
+	                  deluge::l10n::getView(STRING_FOR_COMMUNITY_FEATURE_GRAIN_FX), "enableGrainFX",
+	                  RuntimeFeatureStateToggle::Off);
 }
 
 void RuntimeFeatureSettings::readSettingsFromFile() {
@@ -88,21 +169,21 @@ void RuntimeFeatureSettings::readSettingsFromFile() {
 		return;
 	}
 
-	int error = storageManager.openXMLFile(&fp, TAG_RUNTIME_FEATURE_SETTINGS);
+	int32_t error = storageManager.openXMLFile(&fp, TAG_RUNTIME_FEATURE_SETTINGS);
 	if (error) {
 		return;
 	}
 
 	String currentName;
 	int32_t currentValue = 0;
-	char const* currentTag;
+	char const* currentTag = nullptr;
 	while (*(currentTag = storageManager.readNextTagOrAttributeName())) {
 		if (strcmp(currentTag, TAG_RUNTIME_FEATURE_SETTING) == 0) {
 			// Read name
 			currentTag = storageManager.readNextTagOrAttributeName();
 			if (strcmp(currentTag, TAG_RUNTIME_FEATURE_SETTING_ATTR_NAME) != 0) {
-				numericDriver.displayPopup("Community file err");
-				goto readEnd;
+				display->displayPopup("Community file err");
+				break;
 			}
 			storageManager.readTagOrAttributeValueString(&currentName);
 			storageManager.exitTag();
@@ -110,30 +191,30 @@ void RuntimeFeatureSettings::readSettingsFromFile() {
 			// Read value
 			currentTag = storageManager.readNextTagOrAttributeName();
 			if (strcmp(currentTag, TAG_RUNTIME_FEATURE_SETTING_ATTR_VALUE) != 0) {
-				numericDriver.displayPopup("Community file err");
-				goto readEnd;
+				display->displayPopup("Community file err");
+				break;
 			}
 			currentValue = storageManager.readTagOrAttributeValueInt();
 			storageManager.exitTag();
 
 			bool found = false;
-			for (uint32_t idxSetting = 0; idxSetting < RuntimeFeatureSettingType::MaxElement; ++idxSetting) {
-				if (strcmp(settings[idxSetting].xmlName, currentName.get()) == 0) {
+			for (auto& setting : settings) {
+				if (strcmp(setting.xmlName.data(), currentName.get()) == 0) {
 					found = true;
-					settings[idxSetting].value = currentValue;
+					setting.value = currentValue;
 				}
 			}
 
 			// Remember unknown settings for writing them back
 			if (!found) {
 				//unknownSettings.insertSetting(&currentName, currentValue);
-				int idx = unknownSettings.getNumElements();
+				int32_t idx = unknownSettings.getNumElements();
 				if (unknownSettings.insertAtIndex(idx) != NO_ERROR) {
 					return;
 				}
 				void* address = unknownSettings.getElementAddress(idx);
-				UnknownSetting* unknownSetting = new (address) UnknownSetting();
-				unknownSetting->name.set(&currentName);
+				auto* unknownSetting = new (address) UnknownSetting();
+				unknownSetting->name = currentName.get();
 				unknownSetting->value = currentValue;
 			}
 		}
@@ -141,14 +222,13 @@ void RuntimeFeatureSettings::readSettingsFromFile() {
 		storageManager.exitTag();
 	}
 
-readEnd:
 	storageManager.closeFile();
 }
 
 void RuntimeFeatureSettings::writeSettingsToFile() {
 	f_unlink(RUNTIME_FEATURE_SETTINGS_FILE); // May give error, but no real consequence from that.
 
-	int error = storageManager.createXMLFile(RUNTIME_FEATURE_SETTINGS_FILE, true);
+	int32_t error = storageManager.createXMLFile(RUNTIME_FEATURE_SETTINGS_FILE, true);
 	if (error) {
 		return;
 	}
@@ -158,19 +238,19 @@ void RuntimeFeatureSettings::writeSettingsToFile() {
 	storageManager.writeEarliestCompatibleFirmwareVersion("4.1.3");
 	storageManager.writeOpeningTagEnd();
 
-	for (uint32_t idxSetting = 0; idxSetting < RuntimeFeatureSettingType::MaxElement; ++idxSetting) {
+	for (auto& setting : settings) {
 		storageManager.writeOpeningTagBeginning(TAG_RUNTIME_FEATURE_SETTING);
-		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_NAME, settings[idxSetting].xmlName, false);
-		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_VALUE, settings[idxSetting].value, false);
+		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_NAME, setting.xmlName.data(), false);
+		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_VALUE, setting.value, false);
 		storageManager.writeOpeningTagEnd(false);
 		storageManager.writeClosingTag(TAG_RUNTIME_FEATURE_SETTING, false);
 	}
 
 	// Write unknown elements
-	for (uint32_t idxUnknownSetting; idxUnknownSetting < unknownSettings.getNumElements(); idxUnknownSetting++) {
+	for (uint32_t idxUnknownSetting = 0; idxUnknownSetting < unknownSettings.getNumElements(); idxUnknownSetting++) {
 		UnknownSetting* unknownSetting = (UnknownSetting*)unknownSettings.getElementAddress(idxUnknownSetting);
 		storageManager.writeOpeningTagBeginning(TAG_RUNTIME_FEATURE_SETTING);
-		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_NAME, unknownSetting->name.get(), false);
+		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_NAME, unknownSetting->name.data(), false);
 		storageManager.writeAttribute(TAG_RUNTIME_FEATURE_SETTING_ATTR_VALUE, unknownSetting->value, false);
 		storageManager.writeOpeningTagEnd(false);
 		storageManager.writeClosingTag(TAG_RUNTIME_FEATURE_SETTING, false);
