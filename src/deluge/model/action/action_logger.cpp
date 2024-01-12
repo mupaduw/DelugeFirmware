@@ -38,7 +38,7 @@
 #include "model/consequence/consequence_performance_view_press.h"
 #include "model/consequence/consequence_swing_change.h"
 #include "model/consequence/consequence_tempo_change.h"
-#include "model/drum/kit.h"
+#include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "playback/mode/arrangement.h"
 #include "playback/mode/playback_mode.h"
@@ -133,7 +133,7 @@ Action* ActionLogger::getNewAction(int32_t newActionType, int32_t addToExistingI
 		void* actionMemory = GeneralMemoryAllocator::get().allocLowSpeed(sizeof(Action));
 
 		if (!actionMemory) {
-			Debug::println("no ram to create new Action");
+			D_PRINTLN("no ram to create new Action");
 			return NULL;
 		}
 
@@ -192,7 +192,7 @@ traverseClips:
 		newAction->affectEntireSongView = currentSong->affectEntire;
 
 		newAction->view = getCurrentUI();
-		newAction->currentClip = currentSong->currentClip;
+		newAction->currentClip = getCurrentClip();
 	}
 
 	updateAction(newAction);
@@ -210,7 +210,7 @@ void ActionLogger::updateAction(Action* newAction) {
 			newAction->numClipStates = 0;
 			delugeDealloc(newAction->clipStates);
 			newAction->clipStates = NULL;
-			Debug::println("discarded clip states");
+			D_PRINTLN("discarded clip states");
 		}
 
 		else {
@@ -325,7 +325,7 @@ void ActionLogger::recordPerformanceViewPress(FXColumnPress fxPressBefore[kDispl
 // doNavigation and updateVisually are only false when doing one of those undo-Clip-resize things as part of another Clip resize.
 // You must not call this during the card routine - though I've lost track of the exact reason why not - is it just because we could then be in the middle of executing whichever function accessed the card and we don't know if things will break?
 bool ActionLogger::revert(TimeType time, bool updateVisually, bool doNavigation) {
-	Debug::println("ActionLogger::revert");
+	D_PRINTLN("ActionLogger::revert");
 
 	deleteLastActionIfEmpty();
 
@@ -434,7 +434,7 @@ void ActionLogger::revertAction(Action* action, bool updateVisually, bool doNavi
 			}
 
 			// Or if we've changed Clip but ended up back in the same view...
-			else if (getCurrentUI()->toClipMinder() && currentSong->currentClip != action->currentClip) {
+			else if (getCurrentUI()->toClipMinder() && getCurrentClip() != action->currentClip) {
 				whichAnimation = ANIMATION_CHANGE_CLIP;
 			}
 
@@ -511,7 +511,7 @@ traverseClips:
 				}
 			}
 			else {
-				Debug::println("clip states wrong number so not restoring");
+				D_PRINTLN("clip states wrong number so not restoring");
 			}
 		}
 
@@ -599,7 +599,7 @@ currentClipSwitchedOver:
 
 	else if (whichAnimation == ANIMATION_EXIT_KEYBOARD_VIEW) {
 
-		if (((InstrumentClip*)currentSong->currentClip)->onAutomationInstrumentClipView) {
+		if (getCurrentInstrumentClip()->onAutomationInstrumentClipView) {
 			changeRootUI(&automationInstrumentClipView);
 		}
 		else {
@@ -630,13 +630,13 @@ currentClipSwitchedOver:
 	}
 
 	else if (whichAnimation == ANIMATION_ARRANGEMENT_TO_CLIP_MINDER) {
-		if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
+		if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
 			changeRootUI(&audioClipView);
 		}
-		else if (((InstrumentClip*)currentSong->currentClip)->onKeyboardScreen) {
+		else if (getCurrentInstrumentClip()->onKeyboardScreen) {
 			changeRootUI(&keyboardScreen);
 		}
-		else if (((InstrumentClip*)currentSong->currentClip)->onAutomationInstrumentClipView) {
+		else if (getCurrentInstrumentClip()->onAutomationInstrumentClipView) {
 			changeRootUI(&automationInstrumentClipView);
 		}
 		else {
@@ -713,7 +713,7 @@ currentClipSwitchedOver:
 		default:
 			ClipMinder* clipMinder = getCurrentUI()->toClipMinder();
 			if (clipMinder) {
-				if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) {
+				if (getCurrentClip()->type == CLIP_TYPE_INSTRUMENT) {
 					((InstrumentClipMinder*)clipMinder)->setLedStates();
 				}
 			}
@@ -879,13 +879,13 @@ gotMultipleConsequencesPerNoteRow:
 			} while (thisConsequence->type != Consequence::NOTE_ARRAY_CHANGE
 			         || ((ConsequenceNoteArrayChange*)firstConsequence)->noteRowId != firstNoteRowId);
 
-			Debug::println("did secret undo, just one Consequence");
+			D_PRINTLN("did secret undo, just one Consequence");
 		}
 
 		// Or if only one Consequence (per NoteRow), revert whole Action
 		else {
 			revert(BEFORE, true, false);
-			Debug::println("did secret undo, whole Action");
+			D_PRINTLN("did secret undo, whole Action");
 			revertedWholeAction = true;
 		}
 

@@ -382,6 +382,8 @@ PLACE_SDRAM_DATA Language seven_segment{
         {STRING_FOR_NOTES_CLEARED, "CLEAR"},
         {STRING_FOR_AUTOMATION_CLEARED, "CLEAR"},
 
+        {STRING_FOR_MIDILOOPBACK, "M LP"},
+
         /* Strings Specifically for Automation Instrument Clip View
         * automation_instrument_clip_view.cpp
         */
@@ -395,6 +397,18 @@ PLACE_SDRAM_DATA Language seven_segment{
         {STRING_FOR_PAD_SELECTION_OFF, "OFF"},
         {STRING_FOR_PAD_SELECTION_ON, "ON"},
 
+        /* Strings for Midi Learning View
+        * midi_follow.cpp
+        */
+
+        {STRING_FOR_FOLLOW_TITLE, "FOLO"},
+        {STRING_FOR_FOLLOW, "FOLO"},
+        {STRING_FOR_CHANNEL, "CHAN"},
+        {STRING_FOR_FOLLOW_KIT_ROOT_NOTE, "KIT"},
+        {STRING_FOR_FOLLOW_DISPLAY_PARAM, "DISP"},
+        {STRING_FOR_FOLLOW_FEEDBACK, "FEED"},
+        {STRING_FOR_FOLLOW_FEEDBACK_AUTOMATION, "AUTO"},
+        {STRING_FOR_FOLLOW_FEEDBACK_FILTER, "FLTR"},
     },
     &built_in::english,
 };

@@ -578,8 +578,7 @@ justDontTimeStretch:
 						goto justDontTimeStretch;
 					}
 					else {
-						//Debug::print("sync: ");
-						//Debug::println(numSamplesDrift);
+						D_PRINTLN("sync:  %d", numSamplesDrift);
 					}
 				}
 			}
@@ -650,8 +649,8 @@ justDontTimeStretch:
 					}
 
 					if (numSamplesOfPreMarginAvailable > 2) {
-						//Debug::println("");
-						//Debug::println("might attempt fudge");
+						//D_PRINTLN("");
+						//D_PRINTLN("might attempt fudge");
 
 						int32_t crossfadeLength = std::min(numSamplesOfPreMarginAvailable, kAntiClickCrossfadeLength);
 
@@ -796,9 +795,8 @@ void AudioClip::posReachedEnd(ModelStackWithTimelineCounter* modelStack) {
 	// If recording from session to arranger...
 	if (playbackHandler.recording == RECORDING_ARRANGEMENT && isArrangementOnlyClip()) {
 
-		Debug::println("");
-		Debug::print("AudioClip::posReachedEnd, at pos: ");
-		Debug::println(playbackHandler.getActualArrangementRecordPos());
+		D_PRINTLN("");
+		D_PRINTLN("AudioClip::posReachedEnd, at pos:  %d", playbackHandler.getActualArrangementRecordPos());
 
 		if (!modelStack->song->arrangementOnlyClips.ensureEnoughSpaceAllocated(1)) {
 			return;
@@ -947,7 +945,7 @@ bool AudioClip::renderAsSingleRow(ModelStackWithTimelineCounter* modelStack, Tim
                                   bool addUndefinedArea, int32_t noteRowIndexStart, int32_t noteRowIndexEnd,
                                   int32_t xStart, int32_t xEnd, bool allowBlur, bool drawRepeats) {
 
-	//Debug::println("AudioClip::renderAsSingleRow");
+	//D_PRINTLN("AudioClip::renderAsSingleRow");
 
 	Sample* sample;
 	if (recorder) {
@@ -1044,7 +1042,7 @@ someError:
 	int32_t readAutomationUpToPos = kMaxSequenceLength;
 
 	while (*(tagName = storageManager.readNextTagOrAttributeName())) {
-		//Debug::println(tagName); delayMS(30);
+		//D_PRINTLN(tagName); delayMS(30);
 
 		if (!strcmp(tagName, "trackName")) {
 			storageManager.readTagOrAttributeValueString(&outputNameWhileLoading);
@@ -1253,7 +1251,7 @@ bool AudioClip::shiftHorizontally(ModelStackWithTimelineCounter* modelStack, int
 		reGetParameterAutomation(modelStack);
 
 		// Resume the clip if it was playing before
-		currentSong->currentClip->resumePlayback(modelStack, true);
+		getCurrentClip()->resumePlayback(modelStack, true);
 	}
 	return true;
 }

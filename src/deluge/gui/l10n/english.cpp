@@ -85,17 +85,17 @@ PLACE_SDRAM_DATA Language english{
         //Wavefolder
         {STRING_FOR_WAVEFOLDER, "Wavefolder"},
 
-        //OSC 1 Level, Pitch, Phase Width, Carrier Feedback, Wave Position
+        //OSC 1 Level, Pitch, Pulse Width, Carrier Feedback, Wave Position
         {STRING_FOR_PARAM_LOCAL_OSC_A_VOLUME, "Osc1 level"},
         {STRING_FOR_PARAM_LOCAL_OSC_A_PITCH_ADJUST, "Osc1 pitch"},
-        {STRING_FOR_PARAM_LOCAL_OSC_A_PHASE_WIDTH, "Osc1 phase width"},
+        {STRING_FOR_PARAM_LOCAL_OSC_A_PHASE_WIDTH, "Osc1 pulse width"},
         {STRING_FOR_PARAM_LOCAL_CARRIER_0_FEEDBACK, "Osc1 feedback"},
         {STRING_FOR_PARAM_LOCAL_OSC_A_WAVE_INDEX, "Osc1 wave position"},
 
-        //OSC 2 Level, Pitch, Phase Width, Carrier Feedback, Wave Position
+        //OSC 2 Level, Pitch, Pulse Width, Carrier Feedback, Wave Position
         {STRING_FOR_PARAM_LOCAL_OSC_B_VOLUME, "Osc2 level"},
         {STRING_FOR_PARAM_LOCAL_OSC_B_PITCH_ADJUST, "Osc2 pitch"},
-        {STRING_FOR_PARAM_LOCAL_OSC_B_PHASE_WIDTH, "Osc2 phase width"},
+        {STRING_FOR_PARAM_LOCAL_OSC_B_PHASE_WIDTH, "Osc2 pulse width"},
         {STRING_FOR_PARAM_LOCAL_CARRIER_1_FEEDBACK, "Osc2 feedback"},
         {STRING_FOR_PARAM_LOCAL_OSC_B_WAVE_INDEX, "Osc2 wave position"},
 
@@ -343,6 +343,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_SELECT_A_ROW_OR_AFFECT_ENTIRE, "Select a row or affect-entire"},
         {STRING_FOR_UNIMPLEMENTED, "Feature not (yet?) implemented"},
         {STRING_FOR_CANT_LEARN, "Can't learn"},
+        {STRING_FOR_CANT_LEARN_PC, "Can't learn Program Change"},
         {STRING_FOR_FOLDERS_CANNOT_BE_DELETED_ON_THE_DELUGE, "Folders cannot be deleted on the Deluge"},
         {STRING_FOR_ERROR_CREATING_MULTISAMPLED_INSTRUMENT, "Error creating multisampled instrument"},
         {STRING_FOR_CLIP_IS_RECORDING, "Clip is recording"},
@@ -394,6 +395,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_CLIP_HAS_INSTANCES_IN_ARRANGER, "Clip has instances in arranger"},
         {STRING_FOR_CANT_SAVE_WHILE_OVERDUBS_PENDING, "Can't save while overdubs pending"},
         {STRING_FOR_DIN_PORTS, "DIN ports"},
+        {STRING_FOR_LOOPBACK, "Loopback"},
         {STRING_FOR_UPSTREAM_USB_PORT_3_SYSEX, "upstream USB port 3 (sysex)"},
         {STRING_FOR_UPSTREAM_USB_PORT_2, "upstream USB port 2"},
         {STRING_FOR_UPSTREAM_USB_PORT_1, "upstream USB port 1"},
@@ -811,6 +813,7 @@ PLACE_SDRAM_DATA Language english{
         /* Strings Specifically for Song View
         * session_view.cpp
         */
+        {STRING_FOR_MIDILOOPBACK, "MIDI Loopback"},
 
         {STRING_FOR_SONG_VIEW, "Song View"},
         {STRING_FOR_SONG_FX, "Song FX"},
@@ -825,6 +828,25 @@ PLACE_SDRAM_DATA Language english{
 
         {STRING_FOR_KIT_GLOBAL_FX, "Kit FX"},
         {STRING_FOR_PITCH, "Pitch"},
+
+        /* Strings Specifically for Midi Learning View
+        * midi_follow.cpp
+        */
+        //strings for midi follow menu
+        {STRING_FOR_FOLLOW_TITLE, "Midi-Follow"},
+        {STRING_FOR_FOLLOW, "Follow"},
+        {STRING_FOR_FOLLOW_CHANNEL_SYNTH, "Synth Channel"},
+        {STRING_FOR_FOLLOW_CHANNEL_KIT, "Kit Channel"},
+        {STRING_FOR_FOLLOW_CHANNEL_PARAM, "Param Channel"},
+        {STRING_FOR_FOLLOW_KIT_ROOT_NOTE, "Kit Root Note"},
+        {STRING_FOR_FOLLOW_DISPLAY_PARAM, "Display Param"},
+        {STRING_FOR_FOLLOW_FEEDBACK, "Feedback"},
+        {STRING_FOR_FOLLOW_FEEDBACK_AUTOMATION, "Automation Feedback"},
+        {STRING_FOR_FOLLOW_FEEDBACK_FILTER, "Filter Responses"},
+        {STRING_FOR_FOLLOW_DEVICE_UNASSIGNED, "Device unassigned"},
+        {STRING_FOR_FOLLOW_CHANNEL_UNASSIGNED, "Channel unassigned"},
+        {STRING_FOR_INPUT_DIFFERENTIATION_ON, "Use learned device:"},
+        {STRING_FOR_INPUT_DIFFERENTIATION_OFF, "Use any device"},
     },
 };
 } // namespace deluge::l10n::built_in

@@ -21,8 +21,10 @@
 #include "version.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 
 #define HARDWARE_TEST_MODE 0
 
@@ -361,9 +363,9 @@ constexpr int32_t kMaxMenuValue = 50;
 constexpr int32_t kMinMenuValue = 0;
 constexpr int32_t kMidMenuValue = kMinMenuValue + ((kMaxMenuValue - kMinMenuValue) / 2);
 
-//pan menu range e.g. -25 to +25
-constexpr int32_t kMaxMenuPanValue = kMaxMenuValue / 2;
-constexpr int32_t kMinMenuPanValue = -1 * kMaxMenuPanValue;
+//relative menu range e.g. -25 to +25 - used with pan and pitch
+constexpr int32_t kMaxMenuRelativeValue = kMaxMenuValue / 2;
+constexpr int32_t kMinMenuRelativeValue = -1 * kMaxMenuRelativeValue;
 
 //patch cable menu range e.g. -5000 to 5000
 constexpr int32_t kMaxMenuPatchCableValue = kMaxMenuValue * 100;
@@ -379,7 +381,7 @@ constexpr uint32_t kNoParamID = 0xFFFFFFFF;
 //Automation View constants
 constexpr int32_t kNoSelection = 255;
 constexpr int32_t kNumNonKitAffectEntireParamsForAutomation = 56;
-constexpr int32_t kNumKitAffectEntireParamsForAutomation = 25;
+constexpr int32_t kNumKitAffectEntireParamsForAutomation = 23;
 constexpr int32_t kLastMidiCCForAutomation = 121;
 constexpr int32_t kKnobPosOffset = 64;
 constexpr int32_t kMaxKnobPos = 128;
@@ -399,6 +401,15 @@ enum class PerformanceEditingMode : int32_t {
 	DISABLED,
 	VALUE,
 	PARAM,
+};
+
+//Midi Follow Mode Feedback Automation Modes
+
+enum class MIDIFollowFeedbackAutomationMode : uint8_t {
+	DISABLED,
+	LOW,
+	MEDIUM,
+	HIGH,
 };
 
 // Linear params have different sources multiplied together, then multiplied by the neutral value
@@ -801,6 +812,13 @@ enum class MIDITakeoverMode : uint8_t {
 constexpr auto kNumMIDITakeoverModes = util::to_underlying(MIDITakeoverMode::SCALE) + 1;
 constexpr int32_t kMIDITakeoverKnobSyncThreshold = 5;
 
+enum class MIDIFollowChannelType : uint8_t {
+	SYNTH,
+	KIT,
+	PARAM,
+};
+constexpr auto kNumMIDIFollowChannelTypes = util::to_underlying(MIDIFollowChannelType::PARAM) + 1;
+
 constexpr int32_t kNumClustersLoadedAhead = 2;
 
 enum class InputMonitoringMode : uint8_t {
@@ -863,7 +881,8 @@ enum CCNumber {
 };
 constexpr int32_t kNumCCNumbersIncludingFake = 124;
 constexpr int32_t kNumRealCCNumbers = 120;
-
+constexpr int32_t kMaxMIDIValue = 127;
+constexpr int32_t ALL_NOTES_OFF = -32768;
 enum class InstrumentRemoval {
 	NONE,
 	DELETE_OR_HIBERNATE_IF_UNUSED,
@@ -1054,7 +1073,7 @@ constexpr int32_t kMaxImageStoreWidth = kDisplayWidth;
 
 constexpr int32_t kNumExpressionDimensions = 3;
 
-enum class Expression {
+enum Expression {
 	X_PITCH_BEND,
 	Y_SLIDE_TIMBRE,
 	Z_PRESSURE,
@@ -1064,8 +1083,10 @@ constexpr int32_t MIDI_CHANNEL_MPE_LOWER_ZONE = 16;
 constexpr int32_t MIDI_CHANNEL_MPE_UPPER_ZONE = 17;
 constexpr int32_t NUM_CHANNELS = 18;
 constexpr int32_t MIDI_CHANNEL_NONE = 255;
+constexpr int32_t MIDI_CC_NONE = 255;
 
 constexpr int32_t IS_A_CC = NUM_CHANNELS;
+constexpr int32_t IS_A_PC = IS_A_CC + NUM_CHANNELS; // CC128 is max.
 // To be used instead of MIDI_CHANNEL_MPE_LOWER_ZONE etc for functions that require a "midi output filter". Although in
 // fact, any number <16 or >=18 would work, the way I've defined it.
 constexpr int32_t kMIDIOutputFilterNoMPE = 0;
@@ -1127,6 +1148,11 @@ constexpr uint32_t kShortPressTime = kSampleRate / 2;
 /// Length of a press that delineates a "hold" press.
 /// Used in Performance View and with Sticky Shift
 constexpr uint32_t kHoldTime = kSampleRate / 10;
+
+/// Rate at which midi follow feedback for automation is sent
+constexpr uint32_t kLowFeedbackAutomationRate = (kSampleRate / 1000) * 500;    //500 ms
+constexpr uint32_t kMediumFeedbackAutomationRate = (kSampleRate / 1000) * 150; //150 ms
+constexpr uint32_t kHighFeedbackAutomationRate = (kSampleRate / 1000) * 40;    //40 ms
 
 enum KeyboardLayoutType : uint8_t {
 	KeyboardLayoutTypeIsomorphic,

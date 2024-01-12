@@ -49,8 +49,8 @@
 #include "model/action/action_logger.h"
 #include "model/clip/audio_clip.h"
 #include "model/clip/instrument_clip.h"
-#include "model/drum/kit.h"
 #include "model/instrument/instrument.h"
+#include "model/instrument/kit.h"
 #include "model/model_stack.h"
 #include "model/note/note_row.h"
 #include "model/song/song.h"
@@ -189,7 +189,7 @@ void SampleBrowser::possiblySetUpBlinking() {
 
 	if (!qwertyVisible && !currentlyShowingSamplePreview) {
 		int32_t x = 0;
-		if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT) {
+		if (getCurrentClip()->type == CLIP_TYPE_INSTRUMENT) {
 			x = soundEditor.currentSourceIndex;
 		}
 		soundEditor.setupExclusiveShortcutBlink(x, 5);
@@ -260,9 +260,8 @@ void SampleBrowser::exitAction() {
 	display->setNextTransitionDirection(-1);
 	if (!isUIOpen(&soundEditor)) {
 		// If no file was selected, the user wanted to get out of creating this Drum.
-		if (soundEditor.editingKit()
-		    && ((Kit*)currentSong->currentClip->output)
-		           ->getFirstUnassignedDrum((InstrumentClip*)currentSong->currentClip) // Only if some unassigned Drums
+		// Only if some unassigned Drums
+		if (soundEditor.editingKit() && getCurrentKit()->getFirstUnassignedDrum(getCurrentInstrumentClip())
 		    && soundEditor.getCurrentAudioFileHolder()->filePath.isEmpty()) {
 			instrumentClipView.deleteDrum((SoundDrum*)soundEditor.currentSound);
 			redrawUI = &instrumentClipView;
@@ -286,7 +285,7 @@ ActionResult SampleBrowser::timerCallback() {
 			gui::ContextMenu* contextMenu;
 
 			// AudioClip
-			if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
+			if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
 				display->displayPopup(
 				    deluge::l10n::get(deluge::l10n::String::STRING_FOR_CANT_IMPORT_WHOLE_FOLDER_INTO_AUDIO_CLIP));
 			}
@@ -376,7 +375,7 @@ void SampleBrowser::enterKeyPress() {
 		if (Buttons::isShiftButtonPressed()) {
 
 			// Can only do this for Kit Clips, and for source 0, not 1, AND there has to be only one drum present, which is assigned to the first NoteRow
-			if (currentSong->currentClip->type == CLIP_TYPE_INSTRUMENT && canImportWholeKit()) {
+			if (getCurrentClip()->type == CLIP_TYPE_INSTRUMENT && canImportWholeKit()) {
 				display->displayPopup("SLICER");
 				openUI(&slicer);
 			}
@@ -454,7 +453,7 @@ ActionResult SampleBrowser::buttonAction(deluge::hid::Button b, bool on, bool in
 
 	// Record button
 	else if (b == RECORD && audioRecorder.recordingSource == AudioInputChannel::NONE
-	         && currentSong->currentClip->type != CLIP_TYPE_AUDIO) {
+	         && getCurrentClip()->type != CLIP_TYPE_AUDIO) {
 		if (!on || currentUIMode != UI_MODE_NONE) {
 			return ActionResult::DEALT_WITH;
 		}
@@ -480,9 +479,8 @@ ActionResult SampleBrowser::buttonAction(deluge::hid::Button b, bool on, bool in
 
 bool SampleBrowser::canImportWholeKit() {
 	return (soundEditor.editingKit() && soundEditor.currentSourceIndex == 0
-	        && (SoundDrum*)((InstrumentClip*)currentSong->currentClip)->noteRows.getElement(0)->drum
-	               == soundEditor.currentSound
-	        && (!((Kit*)currentSong->currentClip->output)->firstDrum->next));
+	        && (SoundDrum*)getCurrentInstrumentClip()->noteRows.getElement(0)->drum == soundEditor.currentSound
+	        && (!getCurrentKit()->firstDrum->next));
 }
 
 int32_t SampleBrowser::getCurrentFilePath(String* path) {
@@ -526,7 +524,7 @@ void SampleBrowser::previewIfPossible(int32_t movementDirection) {
 	/*
 	// Was this in case they've already turned the knob further?
 	if (movementDirection && movementDirection * Encoders::encoders[ENCODER_THIS_CPU_SELECT].detentPos > 0 && numFilesFoundInRightDirection > 1) {
-		Debug::println("returned 1");
+		D_PRINTLN("returned 1");
 		return;
 	}
 	*/
@@ -569,7 +567,7 @@ void SampleBrowser::previewIfPossible(int32_t movementDirection) {
 
 		/*
 		if (movementDirection && movementDirection * Encoders::encoders[ENCODER_THIS_CPU_SELECT].detentPos > 0 && numFilesFoundInRightDirection > 1) {
-			Debug::println("returned 2");
+			D_PRINTLN("returned 2");
 			return;
 		}
 		*/
@@ -756,12 +754,12 @@ int32_t SampleBrowser::claimAudioFileForAudioClip() {
 		return error;
 	}
 
-	bool reversed = ((AudioClip*)currentSong->currentClip)->sampleControls.reversed;
+	bool reversed = getCurrentAudioClip()->sampleControls.reversed;
 	error = holder->loadFile(reversed, true, true);
 
 	// If there's a pre-margin, we want to set an attack-time
 	if (!error && ((SampleHolder*)holder)->startPos) {
-		((AudioClip*)currentSong->currentClip)->attack = kAudioClipDefaultAttackIfPreMargin;
+		getCurrentAudioClip()->attack = kAudioClipDefaultAttackIfPreMargin;
 	}
 
 	return error;
@@ -771,8 +769,8 @@ int32_t SampleBrowser::claimAudioFileForAudioClip() {
 // For the "may" arguments, 0 means no; 1 means auto; 2 means do definitely as the user has specifically requested it.
 bool SampleBrowser::claimCurrentFile(int32_t mayDoPitchDetection, int32_t mayDoSingleCycle, int32_t mayDoWaveTable) {
 
-	if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
-		if (currentSong->currentClip->getCurrentlyRecordingLinearly()) {
+	if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
+		if (getCurrentClip()->getCurrentlyRecordingLinearly()) {
 			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_CLIP_IS_RECORDING));
 			return false;
 		}
@@ -783,7 +781,7 @@ bool SampleBrowser::claimCurrentFile(int32_t mayDoPitchDetection, int32_t mayDoS
 	int32_t error;
 
 	// If for AudioClip...
-	if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
+	if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
 
 		error = claimAudioFileForAudioClip();
 		if (error) {
@@ -793,7 +791,7 @@ removeLoadingAnimationAndGetOut:
 			return false;
 		}
 
-		AudioClip* clip = (AudioClip*)currentSong->currentClip;
+		AudioClip* clip = getCurrentAudioClip();
 
 		uint64_t lengthInSamplesAt44 = (uint64_t)clip->sampleHolder.getDurationInSamples(true) * kSampleRate
 		                               / ((Sample*)clip->sampleHolder.audioFile)->sampleRate;
@@ -885,7 +883,7 @@ doLoadAsWaveTable:
 				soundEditor.currentSound->modKnobs[7][0].paramDescriptor.setToHaveParamOnly(
 				    Param::Local::OSC_B_WAVE_INDEX);
 			}
-			currentSong->currentClip->output->modKnobMode = 7;
+			getCurrentOutput()->modKnobMode = 7;
 			view.setKnobIndicatorLevels(); // Visually update.
 			view.setModLedStates();
 		}
@@ -990,7 +988,7 @@ doLoadAsSample:
 					}
 				}
 
-				Kit* kit = (Kit*)currentSong->currentClip->output;
+				Kit* kit = getCurrentKit();
 
 				// Ensure Drum name isn't a duplicate, and if need be, make a new name from the fileNamePostPrefix.
 				if (kit->getDrumFromName(newName.get())) {
@@ -1039,7 +1037,7 @@ doLoadAsSample:
 			}
 
 			if (anyChange) {
-				currentSong->currentClip->output->modKnobMode = 1;
+				getCurrentOutput()->modKnobMode = 1;
 				view.setKnobIndicatorLevels(); // Visually update.
 				view.setModLedStates();
 			}
@@ -1047,7 +1045,7 @@ doLoadAsSample:
 
 		audioFileIsNowSet();
 
-		((Instrument*)currentSong->currentClip->output)->beenEdited();
+		getCurrentInstrument()->beenEdited();
 
 		// If there was only one MultiRange, don't go back to the range menu (that's the BOT-TOP thing).
 		if (soundEditor.currentSource->ranges.getNumElements() <= 1 && soundEditor.navigationDepth
@@ -1085,7 +1083,7 @@ void SampleBrowser::audioFileIsNowSet() {
 		modelStackWithParam->autoParam->setCurrentValueWithNoReversionOrRecording(modelStackWithParam, 2147483647);
 
 		// Hmm crap, we probably still do need to notify...
-		//((ParamManagerBase*)soundEditor.currentParamManager)->setPatchedParamValue(Param::Local::OSC_A_VOLUME + soundEditor.currentSourceIndex, 2147483647, 0xFFFFFFFF, 0, soundEditor.currentSound, currentSong, currentSong->currentClip, false);
+		//((ParamManagerBase*)soundEditor.currentParamManager)->setPatchedParamValue(Param::Local::OSC_A_VOLUME + soundEditor.currentSourceIndex, 2147483647, 0xFFFFFFFF, 0, soundEditor.currentSound, currentSong, getCurrentClip(), false);
 	}
 }
 
@@ -1160,8 +1158,7 @@ int32_t getNumTimesIncorrectSampleOrderSeen(int32_t numSamples, Sample** samples
 		}
 	}
 
-	Debug::print("timesIncorrectOrderSeen: ");
-	Debug::println(timesIncorrectOrderSeen);
+	D_PRINT("timesIncorrectOrderSeen: %d", timesIncorrectOrderSeen);
 
 	return timesIncorrectOrderSeen;
 }
@@ -1311,8 +1308,7 @@ removeReasonsFromSamplesAndGetOut:
 
 	// Ok, the samples are now all in memory.
 
-	Debug::print("loaded from folder: ");
-	Debug::println(numSamples);
+	D_PRINT("loaded from folder: %d", numSamples);
 
 	// If all samples were tagged with the same MIDI note, we get suspicious and delete them.
 	bool discardingMIDINoteFromFile = (numSamples > 1 && commonMIDINote >= 0);
@@ -1358,8 +1354,7 @@ removeReasonsFromSamplesAndGetOut:
 
 	numSamples = sampleI; // In case it's lower now, e.g. due to some samples' pitch detection failing
 
-	Debug::print("successfully detected pitch: ");
-	Debug::println(numSamples);
+	D_PRINTLN("successfully detected pitch: %d", numSamples);
 
 	Sample** sortAreas[2];
 	sortAreas[0] = sortArea;
@@ -1404,7 +1399,7 @@ removeReasonsFromSamplesAndGetOut:
 			// But if C is actually bad enough, we might conclude that the filenames are irrelevant
 			if ((badnessRatingFromC * 3) > numSamples) goto justSortByPitch;
 
-			Debug::println("going back to ordering from C");
+			D_PRINTLN("going back to ordering from C");
 			sortSamples(filenameGreaterOrEqual, numSamples, sortAreas, &readArea, &writeArea);
 		}
 
@@ -1417,7 +1412,7 @@ removeReasonsFromSamplesAndGetOut:
 		*/
 
 		// Ok, we're here, the samples are optimally ordered by file, but, the pitch is out.
-		Debug::println("sample order by file finalized");
+		D_PRINTLN("sample order by file finalized");
 
 		float prevNote = sortAreas[readArea][0]->midiNote; // May be MIDI_NOTE_ERROR
 
@@ -1549,10 +1544,7 @@ removeReasonsFromSamplesAndGetOut:
 				continue;
 			}
 
-			Debug::print("redoing, limited to ");
-			Debug::print(minFreqHz);
-			Debug::print(" to ");
-			Debug::println(maxFreqHz);
+			D_PRINT("redoing, limited to %d to %d", minFreqHz, maxFreqHz);
 
 			thisSample->workOutMIDINote(doingSingleCycle, minFreqHz, maxFreqHz, false);
 
@@ -1563,7 +1555,7 @@ removeReasonsFromSamplesAndGetOut:
 				minFreqHz *= 2;
 				maxFreqHz *= 2;
 
-				Debug::println("pretending an octave up...");
+				D_PRINTLN("pretending an octave up...");
 
 				thisSample->workOutMIDINote(doingSingleCycle, minFreqHz, maxFreqHz, false);
 
@@ -1621,7 +1613,7 @@ doReturnFalse:
 		return false;
 	}
 
-	Debug::println("loaded and sorted samples");
+	D_PRINTLN("loaded and sorted samples");
 
 	AudioEngine::routineWithClusterLoading(); // --------------------------------------------------
 
@@ -1677,7 +1669,7 @@ doReturnFalse:
 			else {
 				// If there are other intervals of more than a semitone, we can't really take it for granted what's going on, so get out
 				if (noteHere >= prevNote + 1.85) {
-					Debug::println("aaa");
+					D_PRINTLN("aaa");
 					uartPrintlnFloat(noteHere - prevNote);
 					goto skipOctaveCorrection;
 				}
@@ -1687,7 +1679,7 @@ doReturnFalse:
 		}
 
 		if (whichSampleIsAnOctaveUp) {
-			Debug::println("correcting octaves");
+			D_PRINTLN("correcting octaves");
 			// Correct earlier ones?
 			if (whichSampleIsAnOctaveUp * 2 < numSamples) {
 				for (int32_t s = 0; s < whichSampleIsAnOctaveUp; s++) {
@@ -1720,7 +1712,7 @@ skipOctaveCorrection:
 		soundEditor.currentSource->setOscType(OscType::SAMPLE);
 	}
 
-	Debug::println("creating ranges");
+	D_PRINTLN("creating ranges");
 
 	for (int32_t s = 0; s < numSamples; s++) {
 
@@ -1731,7 +1723,7 @@ skipOctaveCorrection:
 		Sample* thisSample = sortArea[s];
 
 		if (thisSample->midiNote == MIDI_NOTE_ERROR) {
-			Debug::println("dismissing 1 sample for which pitch couldn't be detected");
+			D_PRINTLN("dismissing 1 sample for which pitch couldn't be detected");
 			// TODO: shouldn't we remove a reason here?
 			continue;
 		}
@@ -1744,10 +1736,7 @@ skipOctaveCorrection:
 			float midPoint = (thisSample->midiNote + nextSample->midiNote) * 0.5;
 			topNote = midPoint; // Round down
 			if (topNote <= lastTopNote) {
-				Debug::print("skipping sample cos ");
-				Debug::print(topNote);
-				Debug::print(" <= ");
-				Debug::println(lastTopNote);
+				D_PRINTLN("skipping sample cos %d <= %d", topNote, lastTopNote);
 				// TODO: shouldn't we remove a reason here?
 				continue;
 			}
@@ -1767,8 +1756,7 @@ skipOctaveCorrection:
 			    rangeIndex); // We know it's gonna succeed
 		}
 
-		Debug::print("top note: ");
-		Debug::println(topNote);
+		D_PRINT("top note:  %d", topNote);
 
 		range->topNote = topNote;
 
@@ -1803,8 +1791,7 @@ skipOctaveCorrection:
 		goto doReturnFalse;
 	}
 
-	Debug::print("distinct ranges: ");
-	Debug::println(numSamples);
+	D_PRINTLN("distinct ranges: %d", numSamples);
 
 	delugeDealloc(sortArea);
 
@@ -1833,7 +1820,7 @@ skipOctaveCorrection:
 	soundEditor.setCurrentMultiRange(numSamples >> 1);
 
 	exitAndNeverDeleteDrum();
-	((Instrument*)currentSong->currentClip->output)->beenEdited();
+	getCurrentInstrument()->beenEdited();
 
 	display->removeWorkingAnimation();
 	return true;
@@ -1857,7 +1844,7 @@ doReturnFalse:
 		return false;
 	}
 
-	Kit* kit = (Kit*)currentSong->currentClip->output;
+	Kit* kit = getCurrentKit();
 	SoundDrum* firstDrum = (SoundDrum*)soundEditor.currentSound;
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -1901,7 +1888,7 @@ getOut:
 				if (!modelStackWithParam->autoParam->isAutomated()) {
 					modelStackWithParam->autoParam->setCurrentValueWithNoReversionOrRecording(modelStackWithParam,
 					                                                                          2147483647);
-					//((ParamManagerBase*)soundEditor.currentParamManager)->setPatchedParamValue(Param::Local::OSC_A_VOLUME + soundEditor.currentSourceIndex, 2147483647, 0xFFFFFFFF, 0, firstDrum, currentSong, currentSong->currentClip, false);
+					//((ParamManagerBase*)soundEditor.currentParamManager)->setPatchedParamValue(Param::Local::OSC_A_VOLUME + soundEditor.currentSourceIndex, 2147483647, 0xFFFFFFFF, 0, firstDrum, currentSong, getCurrentClip(), false);
 				}
 
 				drum->unassignAllVoices();
@@ -1938,7 +1925,7 @@ getOut:
 				kit->addDrum(drum);
 				drum->setupAsSample(&paramManager);
 				drum->nameIsDiscardable = true;
-				currentSong->backUpParamManager(drum, currentSong->currentClip, &paramManager, true);
+				currentSong->backUpParamManager(drum, getCurrentClip(), &paramManager, true);
 			}
 
 			AudioFileHolder* holder = range->getAudioFileHolder();
@@ -1985,12 +1972,12 @@ skipNameStuff:
 	}
 
 	// Make NoteRows for all these new Drums
-	((Kit*)currentSong->currentClip->output)->resetDrumTempValues();
+	getCurrentKit()->resetDrumTempValues();
 	firstDrum->noteRowAssignedTemp = 1;
 	ModelStackWithTimelineCounter* modelStack = (ModelStackWithTimelineCounter*)modelStackMemory;
-	((InstrumentClip*)currentSong->currentClip)->assignDrumsToNoteRows(modelStack);
+	getCurrentInstrumentClip()->assignDrumsToNoteRows(modelStack);
 
-	((Instrument*)currentSong->currentClip->output)->beenEdited();
+	getCurrentInstrument()->beenEdited();
 
 	exitAndNeverDeleteDrum();
 	uiNeedsRendering(&instrumentClipView);

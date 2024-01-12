@@ -8,7 +8,6 @@
 #include "gui/menu_item/arpeggiator/rate.h"
 #include "gui/menu_item/arpeggiator/sync.h"
 #include "gui/menu_item/audio_clip/attack.h"
-#include "gui/menu_item/audio_clip/mod_fx/type.h"
 #include "gui/menu_item/audio_clip/reverse.h"
 #include "gui/menu_item/audio_clip/sample_marker_editor.h"
 #include "gui/menu_item/audio_clip/time_stretch.h"
@@ -26,9 +25,7 @@
 #include "gui/menu_item/cv/volts.h"
 #include "gui/menu_item/decimal.h"
 #include "gui/menu_item/defaults/bend_range.h"
-#include "gui/menu_item/defaults/grid_allow_green_selection.h"
 #include "gui/menu_item/defaults/grid_default_active_mode.h"
-#include "gui/menu_item/defaults/grid_unarm_empty_pads.h"
 #include "gui/menu_item/defaults/keyboard_layout.h"
 #include "gui/menu_item/defaults/magnitude.h"
 #include "gui/menu_item/defaults/metronome_volume.h"
@@ -65,19 +62,18 @@
 #include "gui/menu_item/master_transpose.h"
 #include "gui/menu_item/menu_item.h"
 #include "gui/menu_item/midi/bank.h"
-#include "gui/menu_item/midi/clock_in_status.h"
-#include "gui/menu_item/midi/clock_out_status.h"
 #include "gui/menu_item/midi/command.h"
 #include "gui/menu_item/midi/default_velocity_to_level.h"
 #include "gui/menu_item/midi/device.h"
 #include "gui/menu_item/midi/device_send_clock.h"
 #include "gui/menu_item/midi/devices.h"
-#include "gui/menu_item/midi/input_differentiation.h"
+#include "gui/menu_item/midi/follow/follow_channel.h"
+#include "gui/menu_item/midi/follow/follow_feedback_automation.h"
+#include "gui/menu_item/midi/follow/follow_kit_root_note.h"
 #include "gui/menu_item/midi/pgm.h"
 #include "gui/menu_item/midi/preset.h"
 #include "gui/menu_item/midi/sub.h"
 #include "gui/menu_item/midi/takeover.h"
-#include "gui/menu_item/midi/thru.h"
 #include "gui/menu_item/mod_fx/depth.h"
 #include "gui/menu_item/mod_fx/feedback.h"
 #include "gui/menu_item/mod_fx/offset.h"
@@ -111,8 +107,6 @@
 #include "gui/menu_item/performance_session_view/editing_mode.h"
 #include "gui/menu_item/ppqn.h"
 #include "gui/menu_item/range.h"
-#include "gui/menu_item/record/count_in.h"
-#include "gui/menu_item/record/margins.h"
 #include "gui/menu_item/record/quantize.h"
 #include "gui/menu_item/reverb/compressor/shape.h"
 #include "gui/menu_item/reverb/compressor/volume.h"
@@ -156,9 +150,7 @@
 #include "gui/menu_item/sync_level.h"
 #include "gui/menu_item/sync_level/relative_to_song.h"
 #include "gui/menu_item/synth_mode.h"
-#include "gui/menu_item/tempo/magnitude_matching.h"
 #include "gui/menu_item/transpose.h"
-#include "gui/menu_item/trigger/in/auto_start.h"
 #include "gui/menu_item/trigger/in/ppqn.h"
 #include "gui/menu_item/trigger/out/ppqn.h"
 #include "gui/menu_item/unison/count.h"
@@ -170,7 +162,13 @@
 #include "gui/menu_item/value.h"
 #include "gui/menu_item/voice/polyphony.h"
 #include "gui/menu_item/voice/priority.h"
+#include "gui/ui/sound_editor.h"
+#include "io/midi/midi_device_manager.h"
+#include "io/midi/midi_engine.h"
+#include "model/song/song.h"
+#include "playback/playback_handler.h"
 #include "processing/sound/sound.h"
+#include "storage/flash_storage.h"
 
 using namespace deluge;
 using namespace gui;
@@ -503,7 +501,7 @@ sequence::Direction sequenceDirectionMenu{STRING_FOR_PLAY_DIRECTION};
 UnpatchedParam globalLevelMenu{STRING_FOR_VOLUME_LEVEL, ::Param::Unpatched::GlobalEffectable::VOLUME};
 
 //Pitch
-UnpatchedParam globalVibratoMenu{STRING_FOR_PITCH, ::Param::Unpatched::GlobalEffectable::PITCH_ADJUST};
+UnpatchedParam globalPitchMenu{STRING_FOR_PITCH, ::Param::Unpatched::GlobalEffectable::PITCH_ADJUST};
 
 //Pan
 unpatched_param::Pan globalPanMenu{STRING_FOR_PAN, ::Param::Unpatched::GlobalEffectable::PAN};
@@ -628,16 +626,6 @@ Submenu globalDistortionMenu{
     },
 };
 
-submenu::Arpeggiator globalArpMenu{
-    STRING_FOR_ARPEGGIATOR,
-    {
-        &arpModeMenu,
-        &arpSyncMenu,
-        &arpOctavesMenu,
-        &arpGateMenu,
-    },
-};
-
 // Stutter Menu
 
 UnpatchedParam globalStutterRateMenu{
@@ -666,27 +654,13 @@ Submenu audioClipSampleMenu{
     },
 };
 
-// Mod FX Menu
-audio_clip::mod_fx::Type audioClipModFXTypeMenu{STRING_FOR_TYPE, STRING_FOR_MOD_FX_TYPE};
-
-Submenu audioClipModFXMenu{
-    STRING_FOR_MOD_FX,
-    {
-        &audioClipModFXTypeMenu,
-        &globalModFXRateMenu,
-        &modFXFeedbackMenu,
-        &globalModFXDepthMenu,
-        &modFXOffsetMenu,
-    },
-};
-
 audio_clip::Transpose audioClipTransposeMenu{STRING_FOR_TRANSPOSE};
 audio_clip::Attack audioClipAttackMenu{STRING_FOR_ATTACK};
 
 Submenu audioClipFXMenu{
     STRING_FOR_FX,
     {
-        &audioClipModFXMenu,
+        &globalModFXMenu,
         &eqMenu,
         &globalDelayMenu,
         &globalReverbMenu,
@@ -743,8 +717,8 @@ Submenu padsSubmenu{
 
 // Record submenu
 record::Quantize recordQuantizeMenu{STRING_FOR_QUANTIZATION};
-record::Margins recordMarginsMenu{STRING_FOR_LOOP_MARGINS};
-record::CountIn recordCountInMenu{STRING_FOR_COUNT_IN, STRING_FOR_REC_COUNT_IN};
+ToggleBool recordMarginsMenu{STRING_FOR_LOOP_MARGINS, STRING_FOR_LOOP_MARGINS, FlashStorage::audioClipRecordMargins};
+ToggleBool recordCountInMenu{STRING_FOR_COUNT_IN, STRING_FOR_REC_COUNT_IN, playbackHandler.countInEnabled};
 monitor::Mode monitorModeMenu{STRING_FOR_SAMPLING_MONITORING, STRING_FOR_MONITORING};
 
 Submenu recordSubmenu{
@@ -769,10 +743,60 @@ runtime_feature::Settings runtimeFeatureSettingsMenu{STRING_FOR_COMMUNITY_FTS, S
 
 // MIDI
 // MIDI thru
-midi::Thru midiThruMenu{STRING_FOR_MIDI_THRU};
+ToggleBool midiThruMenu{STRING_FOR_MIDI_THRU, STRING_FOR_MIDI_THRU, midiEngine.midiThru};
 
 // MIDI Takeover
 midi::Takeover midiTakeoverMenu{STRING_FOR_TAKEOVER};
+
+//MIDI Follow
+midi::FollowChannel midiFollowChannelSynthMenu{
+    STRING_FOR_FOLLOW_CHANNEL_SYNTH, STRING_FOR_FOLLOW_CHANNEL_SYNTH,
+    midiEngine.midiFollowChannelType[util::to_underlying(MIDIFollowChannelType::SYNTH)]};
+midi::FollowChannel midiFollowChannelKitMenu{
+    STRING_FOR_FOLLOW_CHANNEL_KIT, STRING_FOR_FOLLOW_CHANNEL_KIT,
+    midiEngine.midiFollowChannelType[util::to_underlying(MIDIFollowChannelType::KIT)]};
+midi::FollowChannel midiFollowChannelParamMenu{
+    STRING_FOR_FOLLOW_CHANNEL_PARAM, STRING_FOR_FOLLOW_CHANNEL_PARAM,
+    midiEngine.midiFollowChannelType[util::to_underlying(MIDIFollowChannelType::PARAM)]};
+midi::FollowKitRootNote midiFollowKitRootNoteMenu{STRING_FOR_FOLLOW_KIT_ROOT_NOTE};
+ToggleBool midiFollowDisplayParamMenu{STRING_FOR_FOLLOW_DISPLAY_PARAM, STRING_FOR_FOLLOW_DISPLAY_PARAM,
+                                      midiEngine.midiFollowDisplayParam};
+ToggleBool midiFollowFeedbackMenu{STRING_FOR_FOLLOW_FEEDBACK, STRING_FOR_FOLLOW_FEEDBACK,
+                                  midiEngine.midiFollowFeedback};
+midi::FollowFeedbackAutomation midiFollowFeedbackAutomationMenu{STRING_FOR_FOLLOW_FEEDBACK_AUTOMATION};
+ToggleBool midiFollowFeedbackFilterMenu{STRING_FOR_FOLLOW_FEEDBACK_FILTER, STRING_FOR_FOLLOW_FEEDBACK_FILTER,
+                                        midiEngine.midiFollowFeedbackFilter};
+
+Submenu midiFollowChannelSubmenu{
+    STRING_FOR_CHANNEL,
+    STRING_FOR_CHANNEL,
+    {
+        &midiFollowChannelSynthMenu,
+        &midiFollowChannelKitMenu,
+        &midiFollowChannelParamMenu,
+    },
+};
+
+Submenu midiFollowFeedbackSubmenu{
+    STRING_FOR_FOLLOW_FEEDBACK,
+    STRING_FOR_FOLLOW_FEEDBACK,
+    {
+        &midiFollowFeedbackMenu,
+        &midiFollowFeedbackAutomationMenu,
+        &midiFollowFeedbackFilterMenu,
+    },
+};
+
+Submenu midiFollowSubmenu{
+    STRING_FOR_FOLLOW_TITLE,
+    STRING_FOR_FOLLOW_TITLE,
+    {
+        &midiFollowChannelSubmenu,
+        &midiFollowKitRootNoteMenu,
+        &midiFollowFeedbackSubmenu,
+        &midiFollowDisplayParamMenu,
+    },
+};
 
 // MIDI commands submenu
 midi::Command playbackRestartMidiCommand{STRING_FOR_RESTART, GlobalMIDICommand::PLAYBACK_RESTART};
@@ -815,13 +839,14 @@ midi::Device midiDeviceMenu{
 };
 
 // MIDI input differentiation menu
-midi::InputDifferentiation midiInputDifferentiationMenu{STRING_FOR_DIFFERENTIATE_INPUTS};
+ToggleBool midiInputDifferentiationMenu{STRING_FOR_DIFFERENTIATE_INPUTS, STRING_FOR_DIFFERENTIATE_INPUTS,
+                                        MIDIDeviceManager::differentiatingInputsByDevice};
 
 // MIDI clock menu
-midi::ClockOutStatus midiClockOutStatusMenu{STRING_FOR_OUTPUT, STRING_FOR_MIDI_CLOCK_OUT};
-midi::ClockInStatus midiClockInStatusMenu{STRING_FOR_INPUT, STRING_FOR_MIDI_CLOCK_IN};
-tempo::MagnitudeMatching tempoMagnitudeMatchingMenu{STRING_FOR_TEMPO_MAGNITUDE_MATCHING,
-                                                    STRING_FOR_TEMPO_M_MATCH_MENU_TITLE};
+ToggleBool midiClockOutStatusMenu{STRING_FOR_OUTPUT, STRING_FOR_MIDI_CLOCK_OUT, playbackHandler.midiOutClockEnabled};
+ToggleBool midiClockInStatusMenu{STRING_FOR_INPUT, STRING_FOR_MIDI_CLOCK_IN, playbackHandler.midiInClockEnabled};
+ToggleBool tempoMagnitudeMatchingMenu{STRING_FOR_TEMPO_MAGNITUDE_MATCHING, STRING_FOR_TEMPO_M_MATCH_MENU_TITLE,
+                                      playbackHandler.tempoMagnitudeMatchingEnabled};
 
 //Midi devices menu
 midi::Devices midi::devicesMenu{STRING_FOR_DEVICES, STRING_FOR_MIDI_DEVICES};
@@ -841,6 +866,7 @@ Submenu midiMenu{
     STRING_FOR_MIDI,
     {
         &midiClockMenu,
+        &midiFollowSubmenu,
         &midiThruMenu,
         &midiTakeoverMenu,
         &midiCommandsMenu,
@@ -852,7 +878,8 @@ Submenu midiMenu{
 // Clock menu
 // Trigger clock in menu
 trigger::in::PPQN triggerInPPQNMenu{STRING_FOR_PPQN, STRING_FOR_INPUT_PPQN};
-trigger::in::AutoStart triggerInAutoStartMenu{STRING_FOR_AUTO_START};
+ToggleBool triggerInAutoStartMenu{STRING_FOR_AUTO_START, STRING_FOR_AUTO_START,
+                                  playbackHandler.analogClockInputAutoStart};
 Submenu triggerClockInMenu{
     STRING_FOR_INPUT,
     STRING_FOR_T_CLOCK_INPUT_MENU_TITLE,
@@ -891,10 +918,12 @@ Submenu defaultUIKeyboard{
 
 defaults::DefaultGridDefaultActiveMode defaultGridDefaultActiveMode{STRING_FOR_DEFAULT_UI_DEFAULT_GRID_ACTIVE_MODE,
                                                                     STRING_FOR_DEFAULT_UI_DEFAULT_GRID_ACTIVE_MODE};
-defaults::DefaultGridAllowGreenSelection defaultGridAllowGreenSelection{
-    STRING_FOR_DEFAULT_UI_DEFAULT_GRID_ALLOW_GREEN_SELECTION, STRING_FOR_DEFAULT_UI_DEFAULT_GRID_ALLOW_GREEN_SELECTION};
-defaults::DefaultGridUnarmEmptyPads defaultGridUnarmEmptyPads{STRING_FOR_DEFAULT_UI_DEFAULT_GRID_UNARM_EMPTY_PADS,
-                                                              STRING_FOR_DEFAULT_UI_DEFAULT_GRID_UNARM_EMPTY_PADS};
+ToggleBool defaultGridAllowGreenSelection{STRING_FOR_DEFAULT_UI_DEFAULT_GRID_ALLOW_GREEN_SELECTION,
+                                          STRING_FOR_DEFAULT_UI_DEFAULT_GRID_ALLOW_GREEN_SELECTION,
+                                          FlashStorage::gridAllowGreenSelection};
+ToggleBool defaultGridUnarmEmptyPads{STRING_FOR_DEFAULT_UI_DEFAULT_GRID_UNARM_EMPTY_PADS,
+                                     STRING_FOR_DEFAULT_UI_DEFAULT_GRID_UNARM_EMPTY_PADS,
+                                     FlashStorage::gridUnarmEmptyPads};
 Submenu defaultSessionGridMenu{
     STRING_FOR_DEFAULT_UI_GRID,
     {&defaultGridDefaultActiveMode, &defaultGridAllowGreenSelection, &defaultGridUnarmEmptyPads},
@@ -1043,9 +1072,14 @@ menu_item::Submenu soundEditorRootMenuPerformanceView{
         &globalDelayMenu,
         &globalModFXMenu,
         &globalDistortionMenu,
-        &globalStutterRateMenu,
     },
 };
+
+bool* getSongMidiLoopback() {
+	return &(currentSong->midiLoopback);
+}
+
+ToggleBoolDyn midiLoopbackMenu{STRING_FOR_MIDILOOPBACK, STRING_FOR_MIDILOOPBACK, getSongMidiLoopback};
 
 //Root menu for Song View
 menu_item::Submenu soundEditorRootMenuSongView{
@@ -1061,6 +1095,7 @@ menu_item::Submenu soundEditorRootMenuSongView{
         &globalModFXMenu,
         &globalDistortionMenu,
         &globalStutterRateMenu,
+        &midiLoopbackMenu,
     },
 };
 
@@ -1069,7 +1104,7 @@ menu_item::Submenu soundEditorRootMenuKitGlobalFX{
     STRING_FOR_KIT_GLOBAL_FX,
     {
         &globalLevelMenu,
-        &globalVibratoMenu,
+        &globalPitchMenu,
         &globalPanMenu,
         &globalLPFMenu,
         &globalHPFMenu,
@@ -1079,9 +1114,6 @@ menu_item::Submenu soundEditorRootMenuKitGlobalFX{
         &globalCompressorMenu,
         &globalModFXMenu,
         &globalDistortionMenu,
-        &globalArpMenu,
-        &portaMenu,
-        &globalStutterRateMenu,
     },
 };
 
@@ -1130,8 +1162,8 @@ MenuItem* paramShortcutsForAudioClips[][8] = {
 
     {&audioClipTimeStretchMenu, &audioClipReverseMenu,   nullptr,                        &samplePitchSpeedMenu,          nullptr,              &fileSelectorMenu,      &interpolationMenu,       &audioClipSampleMarkerEditorMenuEnd},
     {nullptr,                 &audioClipReverseMenu,   nullptr,                        &samplePitchSpeedMenu,          nullptr,              &fileSelectorMenu,      &interpolationMenu,       &audioClipSampleMarkerEditorMenuEnd},
-    {&globalLevelMenu,     	  &audioClipTransposeMenu, nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
-    {&globalLevelMenu,     	  &audioClipTransposeMenu, nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
+    {nullptr,     	  		  nullptr, 				   nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
+    {nullptr,     	  		  nullptr, 				   nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
     {&globalLevelMenu,     	  &audioClipTransposeMenu, nullptr,                        &globalPanMenu,                 nullptr,              &srrMenu,               &bitcrushMenu,            &clippingMenu                      },
@@ -1140,7 +1172,7 @@ MenuItem* paramShortcutsForAudioClips[][8] = {
     {nullptr,                 nullptr,                 nullptr,                        &audioClipAttackMenu,           comingSoonMenu,       &hpfModeMenu,           &globalHPFResMenu,        &globalHPFFreqMenu                 },
     {&compressorReleaseMenu,  &sidechainSyncMenu,      &globalCompressorVolumeMenu,    &compressorAttackMenu,          &compressorShapeMenu, nullptr,                &bassMenu,                &bassFreqMenu                      },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                &trebleMenu,              &trebleFreqMenu                    },
-    {nullptr,                 nullptr,                 nullptr,                        &audioClipModFXTypeMenu,        &modFXOffsetMenu,     &modFXFeedbackMenu,     &globalModFXDepthMenu,    &globalModFXRateMenu            	  },
+    {nullptr,                 nullptr,                 nullptr,                        &modFXTypeMenu,           	   &modFXOffsetMenu,     &modFXFeedbackMenu,     &globalModFXDepthMenu,    &globalModFXRateMenu            	  },
     {nullptr,                 nullptr,                 nullptr,                        &globalReverbSendAmountMenu,    &reverbPanMenu,       &reverbWidthMenu,       &reverbDampeningMenu,     &reverbRoomSizeMenu                },
     {&globalDelayRateMenu, 	  &delaySyncMenu,          &delayAnalogMenu,               &globalDelayFeedbackMenu,       &delayPingPongMenu,   nullptr,                nullptr,                  nullptr                            },
 };
@@ -1169,13 +1201,13 @@ MenuItem* paramShortcutsForKitGlobalFX[][8] = {
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
-    {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  &globalStutterRateMenu             },
-    {&globalLevelMenu,        nullptr,                 &globalVibratoMenu,             &globalPanMenu,                 nullptr,              &srrMenu,               &bitcrushMenu,            nullptr                            },
-    {&portaMenu,              nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
+    {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr             				        },
+    {&globalLevelMenu,        &globalPitchMenu,        nullptr,                        &globalPanMenu,                 nullptr,              &srrMenu,               &bitcrushMenu,            nullptr                            },
+    {nullptr,              	  nullptr,                 nullptr,                        nullptr,                        nullptr,              nullptr,                nullptr,                  nullptr                            },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              &lpfModeMenu,           &globalLPFResMenu,        &globalLPFFreqMenu                 },
     {nullptr,                 nullptr,                 nullptr,                        nullptr,                        nullptr,              &hpfModeMenu,           &globalHPFResMenu,        &globalHPFFreqMenu                 },
     {&compressorReleaseMenu,  &sidechainSyncMenu,      &globalCompressorVolumeMenu,    &compressorAttackMenu,          &compressorShapeMenu, nullptr,                &bassMenu,                &bassFreqMenu                      },
-    {nullptr,                 &arpSyncMenu,            &arpGateMenu,                   &arpOctavesMenu,                &arpModeMenu,         nullptr,                &trebleMenu,              &trebleFreqMenu                    },
+    {nullptr,                 nullptr,            	   nullptr,                        nullptr,                		     nullptr,         	   nullptr,                &trebleMenu,              &trebleFreqMenu                    },
     {nullptr,                 nullptr,                 nullptr,                        &modFXTypeMenu,                 &modFXOffsetMenu,     &modFXFeedbackMenu,     &globalModFXDepthMenu,    &globalModFXRateMenu               },
     {nullptr,                 nullptr,                 nullptr,                        &globalReverbSendAmountMenu,    &reverbPanMenu,       &reverbWidthMenu,       &reverbDampeningMenu,     &reverbRoomSizeMenu                },
     {&globalDelayRateMenu,    &delaySyncMenu,          &delayAnalogMenu,               &globalDelayFeedbackMenu,       &delayPingPongMenu,   nullptr,                nullptr,                  nullptr                            },

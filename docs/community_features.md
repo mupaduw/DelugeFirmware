@@ -23,12 +23,15 @@ Here is a list of general improvements that have been made, ordered from newest 
   	- This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES`.
 
 #### 3.2 - MPE
-- ([#29]) Bugfix to respect MPE zones in kit rows. In the official firmware, kit rows with MIDI learned to a channel would be triggered by an MPE zone which uses that channel. With this change they respect zones in the same way as synth and MIDI clips. ([#512]) adds further fixes related to channels 0 and 15 always getting received as MPE.
-
 - ([#512]) Change handling of MPE expression when collapsed to a single MIDI channel. Previously Y axis would still be sent as CC74 on single MIDI channels. This changes it to send CC1 instead, allowing for controllable behaviour on more non-MPE synths. Future work will make a menu to set this per device. 
 
 #### 3.3 - MIDI
 - ([#47]) Extra MIDI ports on the USB interface for MPE. Port 2 shows in the MIDI device menu, and improves the usability of MPE-capable devices through the USB interface by allowing MPE zones to be sent to port 2 and non-MPE to be sent to port 1 (or vice versa). A third port is added for future use such as a desktop/mobile companion app, DAW control or Mackie HUI emulation. When USB for MIDI is plugged into the Deluge, you can browse these settings in `SETTINGS > MIDI > DEVICES > UPSTREAM USB PORT 1` or `UPSTREAM USB PORT 2`.
+- (#147) Allows CCs to be learnt to the global commands (play, stop, loop, fill, etc.)
+- ([#781]) Master MIDI Follow Mode whereby after setting a master MIDI follow channel for Synth/MIDI/CV clips, Kit clips, and for Parameters, all MIDI (notes + cc’s) received will be directed to control the active view (e.g. arranger view, song view, audio clip view, instrument clip view). 
+	- Comes with a MIDI feedback mode to send updated parameter values on the MIDI follow channel for learned MIDI cc's. Feedback is sent whenever you change context on the deluge and whenever parameter values for the active context are changed.
+	- Settings related to MIDI Follow Mode can be found in `SETTINGS > MIDI > MIDI-FOLLOW`. 
+- ([#865]) MIDI Loopback - All notes and CCs from MIDI clips are sent back to Deluge, available to be learned to other clips. The behavior is as if there were a physical loopback cable, connecting Deluge's MIDI out to MIDI in. Turn on/off in Song View Sound Menu. This may be used for things like additive synthesis (one MIDI clip controls several synth instrument clips), generative melodies / polymeter rhythms (two or more MIDI clips of different lengths control the same instrument or kit clip), or macro control of sounds (have CC modulation in a separate MIDI clip that is turned on or off).. 
 
 #### 3.4 - Tempo
 - ([#178]) New option (`FINE TEMPO` in the `COMMUNITY FEATURES` menu). Inverts the push+turn behavior of the `TEMPO` encoder. With this option enabled the tempo changes by 1 when unpushed and ~4 when pushed (vs ~4 unpushed and 1 pushed in the official firmware).
@@ -48,20 +51,17 @@ Here is a list of general improvements that have been made, ordered from newest 
 #### 3.7 - Mod Wheel
 - ([#512]) Incoming mod wheel MIDI data from non-MPE devices now maps to the `Y` axis.
 
-#### 3.9 - Enable Stutter Automation
-- ([#653]) Enabled ability to record stutter automation with mod (gold) encoder.
-  	- This feature is not present in the v1.0.0 release.
-
-#### 3.9 - Enable Stutter Automation
-- ([#653]) Enabled ability to record stutter automation with mod (gold) encoder.
-
 #### 3.8 - Visual Feedback on Value Changes with Mod Encoders and Increased Resolution for Value's in Menu's
 - ([#636]) Changing parameter values with Mod (Gold) Encoders now displays a pop-up with the current value of the parameter. The `SOUND` and `MODULATION` screens when parameter and modulation editing have also been adjusted to show the same value range as displayed with the Mod Encoders.
 	- This allows for better fine-tuning of values. 
 	- The value range displayed is 0-50 for non-MIDI parameters and 0-127 for MIDI parameters.
 	- Note: In the Menu, if you wish to scroll through the parameter value range faster at an accelerated rate of +/- 5, hold `SHIFT` while turning the Select Encoder.
 
-#### 3.9 - Adjust Metronome Volume
+#### 3.9 - Enable Stutter Automation
+- ([#653]) Enabled ability to record stutter automation with mod (gold) encoder.
+  	- This feature is not present in the v1.0.0 release.
+
+#### 3.10 - Adjust Metronome Volume
 - ([#683]) The Metronome's volume now respects the song's volume and will increase and decrease in volume together with the Gold Volume Encoder.
 	- In addition, a `DEFAULTS` menu entry was created titled `METRONOME` which enables you to set a value between 1-50 to further adjust the volume of the Metronome. 1 being the lowest metronome volume that can be heard when the Song's volume is at its maximum and 50 being the loudest metronome volume.
 
@@ -421,7 +421,6 @@ This list includes all preprocessor switches that can alter firmware behaviour a
     Description of said feature, first new feature please replace this
 
 [#17]: https://github.com/SynthstromAudible/DelugeFirmware/pull/17
-[#29]: https://github.com/SynthstromAudible/DelugeFirmware/pull/29
 [#32]: https://github.com/SynthstromAudible/DelugeFirmware/pull/32
 [#46]: https://github.com/SynthstromAudible/DelugeFirmware/pull/46
 [#47]: https://github.com/SynthstromAudible/DelugeFirmware/pull/47
@@ -434,6 +433,7 @@ This list includes all preprocessor switches that can alter firmware behaviour a
 [#129]: https://github.com/SynthstromAudible/DelugeFirmware/pull/129
 [#138]: https://github.com/SynthstromAudible/DelugeFirmware/pull/138
 [#141]: https://github.com/SynthstromAudible/DelugeFirmware/pull/141
+[#147]: https://github.com/SynthstromAudible/DelugeFirmware/pull/147
 [#157]: https://github.com/SynthstromAudible/DelugeFirmware/pull/157
 [#163]: https://github.com/SynthstromAudible/DelugeFirmware/pull/163
 [#170]: https://github.com/SynthstromAudible/DelugeFirmware/pull/170
@@ -476,4 +476,5 @@ This list includes all preprocessor switches that can alter firmware behaviour a
 [#681]: https://github.com/SynthstromAudible/DelugeFirmware/pull/681
 [#683]: https://github.com/SynthstromAudible/DelugeFirmware/pull/683
 [#711]: https://github.com/SynthstromAudible/DelugeFirmware/pull/711
+[#781]: https://github.com/SynthstromAudible/DelugeFirmware/pull/781
 [Automation View Documentation]: https://github.com/SynthstromAudible/DelugeFirmware/blob/release/1.0/docs/features/automation_view.md

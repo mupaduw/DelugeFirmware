@@ -28,13 +28,14 @@
 #include "hid/matrix/matrix_driver.h"
 #include "io/debug/print.h"
 #include "io/midi/midi_engine.h"
+#include "lib/printf.h"
 #include "memory/general_memory_allocator.h"
 #include "model/clip/instrument_clip.h"
 #include "model/drum/gate_drum.h"
-#include "model/drum/kit.h"
 #include "model/drum/midi_drum.h"
 #include "model/instrument/cv_instrument.h"
 #include "model/instrument/instrument.h"
+#include "model/instrument/kit.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/song/song.h"
 #include "modulation/midi/midi_param.h"
@@ -133,6 +134,7 @@ void StorageManager::writeAttribute(char const* name, char const* value, bool on
 	else {
 		write(" ");
 	}
+
 	write(name);
 	write("=\"");
 	write(value);
@@ -398,9 +400,9 @@ char const* StorageManager::readNextTagOrAttributeName() {
 	if (*toReturn) {
 		/*
     	for (int32_t t = 0; t < tagDepthCaller; t++) {
-    		Debug::print("\t");
+D_PRINTLN("\t");
     	}
-    	Debug::println(toReturn);
+    	D_PRINTLN(toReturn);
 		*/
 		tagDepthCaller++;
 		AudioEngine::logAction(toReturn);
@@ -935,8 +937,7 @@ void StorageManager::readMidiCommand(uint8_t* channel, uint8_t* note) {
 }
 
 int32_t StorageManager::checkSpaceOnCard() {
-	Debug::print("free clusters: ");
-	Debug::println(fileSystemStuff.fileSystem.free_clst);
+	D_PRINTLN("free clusters:  %d", fileSystemStuff.fileSystem.free_clst);
 	return fileSystemStuff.fileSystem.free_clst ? NO_ERROR
 	                                            : ERROR_SD_CARD_FULL; // This doesn't seem to always be 100% accurate...
 }
@@ -1338,7 +1339,7 @@ void StorageManager::openFilePointer(FilePointer* fp) {
 
 	AudioEngine::logAction("openFilePointer");
 
-	Debug::println("openFilePointer");
+	D_PRINTLN("openFilePointer");
 
 	fileSystemStuff.currentFile.obj.sclust = fp->sclust;
 	fileSystemStuff.currentFile.obj.objsize = fp->objsize;
@@ -1381,16 +1382,12 @@ int32_t StorageManager::loadInstrumentFromFile(Song* song, InstrumentClip* clip,
                                                FilePointer* filePointer, String* name, String* dirPath) {
 
 	AudioEngine::logAction("loadInstrumentFromFile");
-	Debug::print("opening instrument file - ");
-	Debug::print(dirPath->get());
-	Debug::print(name->get());
-	Debug::print(" from FP ");
-	Debug::println((int32_t)filePointer->sclust);
+	D_PRINTLN("opening instrument file -  %s %s  from FP  %lu", dirPath->get(), name->get(),
+	          (int32_t)filePointer->sclust);
 
 	int32_t error = openInstrumentFile(instrumentType, filePointer);
 	if (error) {
-		Debug::print("opening instrument file failed - ");
-		Debug::println(name->get());
+		D_PRINTLN("opening instrument file failed -  %s", name->get());
 		return error;
 	}
 
@@ -1399,8 +1396,7 @@ int32_t StorageManager::loadInstrumentFromFile(Song* song, InstrumentClip* clip,
 
 	if (!newInstrument) {
 		closeFile();
-		Debug::print("Allocating instrument file failed - ");
-		Debug::println(name->get());
+		D_PRINTLN("Allocating instrument file failed -  %d", name->get());
 		return ERROR_INSUFFICIENT_RAM;
 	}
 
@@ -1410,15 +1406,13 @@ int32_t StorageManager::loadInstrumentFromFile(Song* song, InstrumentClip* clip,
 
 	// If that somehow didn't work...
 	if (error || !fileSuccess) {
-		Debug::print("reading instrument file failed - ");
-		Debug::println(name->get());
+		D_PRINTLN("reading instrument file failed -  %s", name->get());
 		if (!fileSuccess) {
 			error = ERROR_SD_CARD;
 		}
 
 deleteInstrumentAndGetOut:
-		Debug::print("abandoning load - ");
-		Debug::println(name->get());
+		D_PRINTLN("abandoning load -  %s", name->get());
 		newInstrument->deleteBackedUpParamManagers(song);
 		void* toDealloc = static_cast<void*>(newInstrument);
 		newInstrument->~Instrument();
@@ -1446,8 +1440,7 @@ deleteInstrumentAndGetOut:
 		}
 		else {
 paramManagersMissing:
-			Debug::print("creating param manager failed - ");
-			Debug::println(name->get());
+			D_PRINTLN("creating param manager failed -  %s", name->get());
 			error = ERROR_FILE_CORRUPTED;
 			goto deleteInstrumentAndGetOut;
 		}

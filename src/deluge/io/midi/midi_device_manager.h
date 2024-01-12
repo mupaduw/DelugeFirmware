@@ -23,6 +23,7 @@ class MIDIDevice;
 class MIDIDeviceUSBUpstream;
 class MIDIDeviceDINPorts;
 class MIDIDeviceUSB;
+class MIDIDeviceLoopback;
 
 #else
 #include "definitions.h"
@@ -99,6 +100,8 @@ void slowRoutine();
 MIDIDevice* readDeviceReferenceFromFile();
 void readDeviceReferenceFromFlash(GlobalMIDICommand whichCommand, uint8_t const* memory);
 void writeDeviceReferenceToFlash(GlobalMIDICommand whichCommand, uint8_t* memory);
+void readMidiFollowDeviceReferenceFromFlash(MIDIFollowChannelType whichType, uint8_t const* memory);
+void writeMidiFollowDeviceReferenceToFlash(MIDIFollowChannelType whichType, uint8_t* memory);
 void recountSmallestMPEZones();
 void writeDevicesToFile();
 void readAHostedDeviceFromFile();
@@ -108,6 +111,7 @@ extern MIDIDeviceUSBUpstream upstreamUSBMIDIDevice_port1;
 extern MIDIDeviceUSBUpstream upstreamUSBMIDIDevice_port2;
 extern MIDIDeviceUSBUpstream upstreamUSBMIDIDevice_port3;
 extern MIDIDeviceDINPorts dinMIDIPorts;
+extern MIDIDeviceLoopback loopbackMidi;
 
 extern bool differentiatingInputsByDevice;
 

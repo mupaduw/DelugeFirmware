@@ -57,6 +57,8 @@ void Devices::beginSession(MenuItem* navigatedBackwardFrom) {
 }
 
 void Devices::selectEncoderAction(int32_t offset) {
+	offset = std::clamp<int32_t>(offset, -1, 1);
+
 	do {
 		int32_t newValue = this->getValue() + offset;
 
@@ -110,14 +112,17 @@ void Devices::selectEncoderAction(int32_t offset) {
 
 MIDIDevice* Devices::getDevice(int32_t deviceIndex) {
 	switch (deviceIndex) {
-	case -3: {
+	case -4: {
 		return &MIDIDeviceManager::dinMIDIPorts;
 	}
-	case -2: {
+	case -3: {
 		return &MIDIDeviceManager::upstreamUSBMIDIDevice_port1;
 	}
-	case -1: {
+	case -2: {
 		return &MIDIDeviceManager::upstreamUSBMIDIDevice_port2;
+	}
+	case -1: {
+		return &MIDIDeviceManager::loopbackMidi;
 	}
 	default: {
 		return static_cast<MIDIDevice*>(MIDIDeviceManager::hostedMIDIDevices.getElement(deviceIndex));

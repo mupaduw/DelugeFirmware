@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2023 Synthstrom Audible Limited
+ * Copyright (c) 2023 Aria Burrell (litui)
  *
  * This file is part of The Synthstrom Audible Deluge Firmware.
  *
@@ -14,16 +14,19 @@
  * You should have received a copy of the GNU General Public License along with this program.
  * If not, see <https://www.gnu.org/licenses/>.
 */
-#pragma once
-#include "gui/menu_item/toggle.h"
-#include "gui/ui/sound_editor.h"
-#include "playback/playback_handler.h"
 
-namespace deluge::gui::menu_item::midi {
-class ClockOutStatus final : public Toggle {
-public:
-	using Toggle::Toggle;
-	void readCurrentValue() override { this->setValue(playbackHandler.midiOutClockEnabled); }
-	void writeCurrentValue() override { playbackHandler.setMidiOutClockMode(this->getValue()); }
-};
-} // namespace deluge::gui::menu_item::midi
+#pragma once
+
+#include "io/midi/device_specific/midi_device_lumi_keys.h"
+#include "io/midi/midi_device.h"
+
+enum class SpecificMidiDeviceType { NONE = 0, LUMI_KEYS = 1 };
+
+SpecificMidiDeviceType getSpecificMidiDeviceType(uint16_t vendorId, uint16_t productId);
+
+MIDIDeviceUSBHosted* recastSpecificMidiDevice(void* sourceDevice);
+MIDIDeviceUSBHosted* recastSpecificMidiDevice(MIDIDeviceUSBHosted* sourceDevice);
+
+MIDIDeviceUSBHosted* getSpecificDeviceFromMIDIDevice(MIDIDevice* sourceDevice);
+
+void iterateAndCallSpecificDeviceHook(MIDIDeviceUSBHosted::Hook hook);

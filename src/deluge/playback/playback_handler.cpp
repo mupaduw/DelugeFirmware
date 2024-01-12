@@ -34,6 +34,7 @@
 #include "io/debug/print.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_engine.h"
+#include "io/midi/midi_follow.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action.h"
 #include "model/action/action_logger.h"
@@ -43,7 +44,7 @@
 #include "model/consequence/consequence.h"
 #include "model/consequence/consequence_begin_playback.h"
 #include "model/consequence/consequence_tempo_change.h"
-#include "model/drum/kit.h"
+#include "model/instrument/kit.h"
 #include "model/model_stack.h"
 #include "model/sample/sample_holder.h"
 #include "model/settings/runtime_feature_settings.h"
@@ -136,7 +137,7 @@ void PlaybackHandler::slowRoutine() {
 	// See if any MIDI commands are pending which couldn't be actioned before (see comments in tryGlobalMIDICommands())
 	if (pendingGlobalMIDICommand != GlobalMIDICommand::NONE && !currentlyAccessingCard) {
 
-		Debug::println("actioning pending command -----------------------------------------");
+		D_PRINTLN("actioning pending command -----------------------------------------");
 
 		if (actionLogger.allowedToDoReversion()) {
 
@@ -166,12 +167,12 @@ void PlaybackHandler::playButtonPressed(int32_t buttonPressLatency) {
 	// If not currently playing
 	if (!playbackState) {
 		setupPlaybackUsingInternalClock(buttonPressLatency);
-		Debug::println("Play");
+		D_PRINTLN("Play");
 	}
 
 	// Or if currently playing...
 	else {
-		Debug::println("~Play");
+		D_PRINTLN("~Play");
 		// If holding <> encoder down...
 		if (Buttons::isButtonPressed(deluge::hid::button::X_ENC)) {
 
@@ -373,7 +374,7 @@ void PlaybackHandler::decideOnCurrentPlaybackMode() {
 	}
 
 	if (rootUIIsClipMinderScreen()
-	    && (currentSong->lastClipInstanceEnteredStartPos != -1 || currentSong->currentClip->isArrangementOnlyClip())) {
+	    && (currentSong->lastClipInstanceEnteredStartPos != -1 || getCurrentClip()->isArrangementOnlyClip())) {
 useArranger:
 		currentPlaybackMode = &arrangement;
 	}
@@ -1341,7 +1342,7 @@ void PlaybackHandler::setupPlaybackUsingExternalClock(bool switchingFromInternal
 }
 
 void PlaybackHandler::positionPointerReceived(uint8_t data1, uint8_t data2) {
-	Debug::println("position");
+	D_PRINTLN("position");
 	uint32_t pos = (((uint32_t)data2 << 7) | data1) * 6;
 
 	if (currentSong->insideWorldTickMagnitude >= 0) {
@@ -1372,7 +1373,7 @@ void PlaybackHandler::startMessageReceived() {
 	if (ignoringMidiClockInput || !midiInClockEnabled) {
 		return;
 	}
-	Debug::println("start");
+	D_PRINTLN("start");
 	// If we already are playing
 	if (playbackState) {
 
@@ -1394,7 +1395,7 @@ bool PlaybackHandler::startIgnoringMidiClockInputIfNecessary() {
 
 	if ((playbackHandler.playbackState & PLAYBACK_CLOCK_INTERNAL_ACTIVE)
 	    && (int32_t)(AudioEngine::audioSampleTimer - timeLastMIDIStartOrContinueMessageSent) < 50 * 44) {
-		Debug::println("ignoring midi clock input");
+		D_PRINTLN("ignoring midi clock input");
 		ignoringMidiClockInput = true;
 		return true;
 	}
@@ -1409,7 +1410,7 @@ void PlaybackHandler::continueMessageReceived() {
 		return;
 	}
 
-	Debug::println("continue");
+	D_PRINTLN("continue");
 	// If we already are playing
 	if (playbackState) {
 
@@ -1444,7 +1445,7 @@ void PlaybackHandler::clockMessageReceived(uint32_t time) {
 	if (ignoringMidiClockInput || !midiInClockEnabled) {
 		return;
 	}
-	//Debug::println("clock");
+	//D_PRINTLN("clock");
 
 	if (playbackState) {
 		inputTick(false, time);
@@ -1584,8 +1585,7 @@ void PlaybackHandler::inputTick(bool fromTriggerClock, uint32_t time) {
 			// If we've done this enough times, don't do it again
 			if (lastInputTickReceived >= kNumInputTicksToAllowTempoTargeting) {
 				tempoMagnitudeMatchingActiveNow = false;
-				Debug::print("finished tempo magnitude matching. magnitude = ");
-				Debug::println(currentSong->insideWorldTickMagnitude);
+				D_PRINTLN("finished tempo magnitude matching. magnitude =  %d", currentSong->insideWorldTickMagnitude);
 			}
 		}
 	}
@@ -1596,8 +1596,7 @@ void PlaybackHandler::inputTick(bool fromTriggerClock, uint32_t time) {
 	if (lastInputTickReceived != 0) {
 		uint32_t timeLastInputTickTook = timeThisInputTick - timeLastInputTicks[0];
 
-		Debug::print("time since last: ");
-		Debug::println(timeLastInputTickTook);
+		D_PRINTLN("time since last:  %d", timeLastInputTickTook);
 
 		uint32_t internalTicksPer;
 		uint32_t inputTicksPer;
@@ -1628,8 +1627,8 @@ void PlaybackHandler::inputTick(bool fromTriggerClock, uint32_t time) {
 		// 5% = 1127428915
 		if ((lowpassedTimePerInternalTick >> 2) > multiply_32x32_rshift32(1127428915, stickyTimePerInternalTick)
 		    || (stickyTimePerInternalTick >> 2) > multiply_32x32_rshift32(1127428915, lowpassedTimePerInternalTick)) {
-			//Debug::println("5% tempo jump");
-			//Debug::println(lowpassedTimePerInternalTick);
+			//D_PRINTLN("5% tempo jump");
+			//D_PRINTLN(lowpassedTimePerInternalTick);
 			slowpassedTimePerInternalTick = lowpassedTimePerInternalTick << slowpassedTimePerInternalTickSlowness;
 			stickyTimePerInternalTick = lowpassedTimePerInternalTick;
 
@@ -1639,7 +1638,7 @@ void PlaybackHandler::inputTick(bool fromTriggerClock, uint32_t time) {
 		             > multiply_32x32_rshift32(1084479242, stickyTimePerInternalTick)
 		         || (stickyTimePerInternalTick >> 2) > multiply_32x32_rshift32(
 		                1084479242, slowpassedTimePerInternalTick >> slowpassedTimePerInternalTickSlowness)) {
-			//Debug::println("1% tempo jump");
+			//D_PRINTLN("1% tempo jump");
 			stickyTimePerInternalTick = lowpassedTimePerInternalTick =
 			    slowpassedTimePerInternalTick >> slowpassedTimePerInternalTickSlowness;
 
@@ -2513,7 +2512,8 @@ bool PlaybackHandler::tryGlobalMIDICommandsOff(MIDIDevice* device, int32_t chann
 	bool foundAnything = false;
 
 	// Check for FILL command at index [8]
-	if (midiEngine.globalMIDICommands[8].equalsNoteOrCC(device, channel, note)) {
+	if (midiEngine.globalMIDICommands[util::to_underlying(GlobalMIDICommand::FILL)].equalsNoteOrCC(device, channel,
+	                                                                                               note)) {
 		currentSong->changeFillMode(false);
 		foundAnything = true;
 	}
@@ -2521,18 +2521,18 @@ bool PlaybackHandler::tryGlobalMIDICommandsOff(MIDIDevice* device, int32_t chann
 	return foundAnything;
 }
 
-void PlaybackHandler::programChangeReceived(int32_t channel, int32_t program) {
-
-	/*
-    // If user assigning MIDI commands, do that
-    if (subMode == UI_MODE_MIDI_LEARN) {
-    	if (getCurrentUI() == &soundEditor && soundEditor.noteOnReceivedForMidiLearn(channel + 16, program, 127)) {}
-    	return;
-    }
-
-
-    tryGlobalMIDICommands(channel + 16, program);
-    */
+void PlaybackHandler::programChangeReceived(MIDIDevice* fromDevice, int32_t channel, int32_t program) {
+	// If user assigning MIDI commands, do that
+	if (currentUIMode == UI_MODE_MIDI_LEARN) {
+		if (getCurrentUI()->pcReceivedForMidiLearn(fromDevice, channel, program)) {}
+		else {
+			view.pcReceivedForMIDILearn(fromDevice, channel, program);
+		}
+	}
+	else {
+		// we build ontop of the CC hack
+		tryGlobalMIDICommands(fromDevice, channel + IS_A_PC, program);
+	}
 }
 
 void PlaybackHandler::noteMessageReceived(MIDIDevice* fromDevice, bool on, int32_t channel, int32_t note,
@@ -2544,7 +2544,6 @@ void PlaybackHandler::noteMessageReceived(MIDIDevice* fromDevice, bool on, int32
 		int32_t channelOrZone = fromDevice->ports[MIDI_DIRECTION_INPUT_TO_DELUGE].channelToZone(channel);
 
 		if (getCurrentUI()->noteOnReceivedForMidiLearn(fromDevice, channelOrZone, note, velocity)) {}
-
 		else {
 			view.noteOnReceivedForMidiLearn(fromDevice, channelOrZone, note, velocity);
 		}
@@ -2604,6 +2603,12 @@ void PlaybackHandler::noteMessageReceived(MIDIDevice* fromDevice, bool on, int32
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStack* modelStack = setupModelStackWithSong(modelStackMemory, currentSong);
+
+	// See if note message received should be processed by midi follow mode
+	if (fromDevice != &MIDIDeviceManager::loopbackMidi) {
+		midiFollow.noteMessageReceived(fromDevice, on, channel, note, velocity, doingMidiThru, shouldRecordNotesNowNow,
+		                               modelStack);
+	}
 
 	// Go through all Instruments...
 	for (Output* thisOutput = currentSong->firstOutput; thisOutput; thisOutput = thisOutput->next) {
@@ -2718,6 +2723,11 @@ void PlaybackHandler::pitchBendReceived(MIDIDevice* fromDevice, uint8_t channel,
 
 	dealingWithReceivedMIDIPitchBendRightNow = true;
 
+	// See if pitch bend received should be processed by midi follow mode
+	if (fromDevice != &MIDIDeviceManager::loopbackMidi) {
+		midiFollow.pitchBendReceived(fromDevice, channel, data1, data2, doingMidiThru, modelStack);
+	}
+
 	// Go through all Outputs...
 	for (Output* thisOutput = currentSong->firstOutput; thisOutput; thisOutput = thisOutput->next) {
 
@@ -2783,6 +2793,11 @@ void PlaybackHandler::midiCCReceived(MIDIDevice* fromDevice, uint8_t channel, ui
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStack* modelStack = setupModelStackWithSong(modelStackMemory, currentSong);
 
+	// See if midi cc received should be processed by midi follow mode
+	if (fromDevice != &MIDIDeviceManager::loopbackMidi) {
+		midiFollow.midiCCReceived(fromDevice, channel, ccNumber, value, doingMidiThru, modelStack);
+	}
+
 	// Go through all Outputs...
 	for (Output* thisOutput = currentSong->firstOutput; thisOutput; thisOutput = thisOutput->next) {
 
@@ -2818,6 +2833,11 @@ void PlaybackHandler::aftertouchReceived(MIDIDevice* fromDevice, int32_t channel
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStack* modelStack = setupModelStackWithSong(modelStackMemory, currentSong);
+
+	// See if aftertouch received should be processed by midi follow mode
+	if (fromDevice != &MIDIDeviceManager::loopbackMidi) {
+		midiFollow.aftertouchReceived(fromDevice, channel, value, noteCode, doingMidiThru, modelStack);
+	}
 
 	// Go through all Instruments...
 	for (Output* thisOutput = currentSong->firstOutput; thisOutput; thisOutput = thisOutput->next) {
@@ -2920,8 +2940,8 @@ doCreateNextOverdub:
 			}
 
 			// Otherwise, prioritize the currentClip - so long as it's not arrangement-only
-			else if (currentSong->currentClip && !currentSong->currentClip->isArrangementOnlyClip()) {
-				clipToCreateOverdubFrom = currentSong->currentClip;
+			else if (getCurrentClip() && !getCurrentClip()->isArrangementOnlyClip()) {
+				clipToCreateOverdubFrom = getCurrentClip();
 				clipIndexToCreateOverdubFrom = currentSong->sessionClips.getIndexForClip(clipToCreateOverdubFrom);
 			}
 

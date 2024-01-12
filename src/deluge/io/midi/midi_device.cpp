@@ -20,6 +20,7 @@
 #include "gui/l10n/l10n.h"
 #include "gui/ui/sound_editor.h"
 #include "io/debug/print.h"
+#include "io/midi/device_specific/specific_midi_device.h"
 #include "io/midi/midi_engine.h"
 #include "model/model_stack.h"
 #include "model/song/song.h"
@@ -61,7 +62,7 @@ void MIDIDevice::dataEntryMessageReceived(ModelStack* modelStack, int32_t channe
 		if (zone >= 0) { // If it *is* MPE-related...
 
 			// If it's on the "main" channel
-			if (channel == 0 || channel == 15) {
+			if (ports[MIDI_DIRECTION_INPUT_TO_DELUGE].isMasterChannel(channel)) {
 setMPEBendRange:
 				mpeZoneBendRanges[zone][whichBendRange] = msb;
 			}
@@ -87,8 +88,8 @@ setMPEBendRange:
 		if (msb < 16) {
 			int32_t zone;
 
-			// Lower zone
-			if (channel == 0) {
+			// Master Channel of Lower zone
+			if (ports[MIDI_DIRECTION_INPUT_TO_DELUGE].mpeLowerZoneLastMemberChannel && channel == 0) {
 				zone = MPE_ZONE_LOWER_NUMBERED_FROM_0;
 				ports[MIDI_DIRECTION_INPUT_TO_DELUGE].mpeLowerZoneLastMemberChannel = msb;
 				ports[MIDI_DIRECTION_INPUT_TO_DELUGE]
@@ -116,8 +117,8 @@ resetBendRanges
 				soundEditor.mpeZonesPotentiallyUpdated();
 			}
 
-			// Upper zone
-			else if (channel == 15) {
+			// Master Channel of Upper zone
+			else if (ports[MIDI_DIRECTION_INPUT_TO_DELUGE].mpeUpperZoneLastMemberChannel < 15 && channel == 15) {
 				zone = MPE_ZONE_UPPER_NUMBERED_FROM_0;
 				ports[MIDI_DIRECTION_INPUT_TO_DELUGE].mpeUpperZoneLastMemberChannel = 15 - msb;
 				ports[MIDI_DIRECTION_INPUT_TO_DELUGE]
@@ -287,6 +288,7 @@ void MIDIPort::writeToFile(char const* tagName) {
 
 void MIDIPort::readFromFile(MIDIDevice* deviceToSendMCMsOn) {
 	char const* tagName;
+	bool sentMPEConfig = false;
 	while (*(tagName = storageManager.readNextTagOrAttributeName())) {
 		if (!strcmp(tagName, "mpeLowerZone")) {
 
@@ -301,6 +303,7 @@ void MIDIPort::readFromFile(MIDIDevice* deviceToSendMCMsOn) {
 							moveLowerZoneOutOfWayOfUpperZone(); // Move self out of way of other - just in case user or MCM has set other and that's the important one they want now.
 							if (deviceToSendMCMsOn) {
 								deviceToSendMCMsOn->sendRPN(0, 0, 6, mpeLowerZoneLastMemberChannel);
+								sentMPEConfig = true;
 							}
 						}
 					}
@@ -323,6 +326,7 @@ void MIDIPort::readFromFile(MIDIDevice* deviceToSendMCMsOn) {
 							moveUpperZoneOutOfWayOfLowerZone(); // Move self out of way of other - just in case user or MCM has set other and that's the important one they want now.
 							if (deviceToSendMCMsOn) {
 								deviceToSendMCMsOn->sendRPN(15, 0, 6, 15 - mpeUpperZoneLastMemberChannel);
+								sentMPEConfig = true;
 							}
 						}
 					}
@@ -453,6 +457,46 @@ char const* MIDIDeviceUSBHosted::getDisplayName() {
 	return name.get();
 }
 
+void MIDIDeviceUSBHosted::callHook(Hook hook) {
+	switch (hook) {
+	case Hook::HOOK_ON_CONNECTED:
+		hookOnConnected();
+		break;
+	case Hook::HOOK_ON_CHANGE_ROOT_NOTE:
+		hookOnChangeRootNote();
+		break;
+	case Hook::HOOK_ON_CHANGE_SCALE:
+		hookOnChangeScale();
+		break;
+	case Hook::HOOK_ON_ENTER_SCALE_MODE:
+		hookOnEnterScaleMode();
+		break;
+	case Hook::HOOK_ON_EXIT_SCALE_MODE:
+		hookOnExitScaleMode();
+		break;
+	case Hook::HOOK_ON_MIDI_LEARN:
+		hookOnMIDILearn();
+		break;
+	case Hook::HOOK_ON_RECALCULATE_COLOUR:
+		hookOnRecalculateColour();
+		break;
+	case Hook::HOOK_ON_TRANSITION_TO_ARRANGER_VIEW:
+		hookOnTransitionToArrangerView();
+		break;
+	case Hook::HOOK_ON_TRANSITION_TO_CLIP_VIEW:
+		hookOnTransitionToClipView();
+		break;
+	case Hook::HOOK_ON_TRANSITION_TO_SESSION_VIEW:
+		hookOnTransitionToSessionView();
+		break;
+	case Hook::HOOK_ON_WRITE_HOSTED_DEVICE_TO_FILE:
+		hookOnWriteHostedDeviceToFile();
+		break;
+	default:
+		break;
+	}
+}
+
 void MIDIDeviceUSBUpstream::writeReferenceAttributesToFile() {
 	storageManager.writeAttribute(
 	    "port", portNumber ? "upstreamUSB2" : "upstreamUSB",
@@ -460,11 +504,8 @@ void MIDIDeviceUSBUpstream::writeReferenceAttributesToFile() {
 }
 
 void MIDIDeviceUSBUpstream::writeToFlash(uint8_t* memory) {
-	Debug::print("writing to flash port ");
-	Debug::print(portNumber);
-	Debug::print(" into ");
+	D_PRINTLN("writing to flash port  %d  into ", portNumber);
 	*(uint16_t*)memory = portNumber ? VENDOR_ID_UPSTREAM_USB2 : VENDOR_ID_UPSTREAM_USB;
-	Debug::println(*memory);
 }
 
 char const* MIDIDeviceUSBUpstream::getDisplayName() {
@@ -510,4 +551,26 @@ void MIDIDeviceDINPorts::sendSysex(uint8_t* data, int32_t len) {
 	for (int32_t i = 0; i < len; i++) {
 		bufferMIDIUart(data[i]);
 	}
+}
+
+void MIDIDeviceLoopback::writeReferenceAttributesToFile() {
+	storageManager.writeAttribute("port", "loopbackMidi", false);
+}
+
+void MIDIDeviceLoopback::writeToFlash(uint8_t* memory) {
+	*(uint16_t*)memory = VENDOR_ID_LOOPBACK;
+}
+
+char const* MIDIDeviceLoopback::getDisplayName() {
+	return deluge::l10n::get(deluge::l10n::String::STRING_FOR_LOOPBACK);
+}
+
+void MIDIDeviceLoopback::sendMessage(uint8_t statusType, uint8_t channel, uint8_t data1, uint8_t data2) {
+}
+
+int32_t MIDIDeviceLoopback::sendBufferSpace() {
+	return 0;
+}
+
+void MIDIDeviceLoopback::sendSysex(uint8_t* data, int32_t len) {
 }

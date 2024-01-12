@@ -15,15 +15,38 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "gui/menu_item/toggle.h"
+#include "gui/menu_item/integer.h"
 #include "gui/ui/sound_editor.h"
 #include "io/midi/midi_engine.h"
 
 namespace deluge::gui::menu_item::midi {
-class Thru final : public Toggle {
+
+class FollowKitRootNote final : public Integer {
 public:
-	using Toggle::Toggle;
-	void readCurrentValue() override { this->setValue(midiEngine.midiThru); }
-	void writeCurrentValue() override { midiEngine.midiThru = this->getValue(); }
+	using Integer::Integer;
+	void readCurrentValue() override { this->setValue(midiEngine.midiFollowKitRootNote); }
+	void writeCurrentValue() override { midiEngine.midiFollowKitRootNote = this->getValue(); }
+	[[nodiscard]] int32_t getMinValue() const override { return 0; }
+	[[nodiscard]] int32_t getMaxValue() const override { return kMaxMIDIValue; }
+	bool allowsLearnMode() override { return true; }
+
+	bool learnNoteOn(MIDIDevice* device, int32_t channel, int32_t noteCode) {
+		this->setValue(noteCode);
+		midiEngine.midiFollowKitRootNote = noteCode;
+
+		if (soundEditor.getCurrentMenuItem() == this) {
+			if (display->haveOLED()) {
+				renderUIsForOled();
+			}
+			else {
+				drawValue();
+			}
+		}
+		else {
+			display->displayPopup(l10n::get(l10n::String::STRING_FOR_LEARNED));
+		}
+
+		return true;
+	}
 };
 } // namespace deluge::gui::menu_item::midi

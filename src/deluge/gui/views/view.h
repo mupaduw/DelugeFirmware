@@ -58,6 +58,7 @@ public:
 	void noteRowMuteMidiLearnPadPressed(bool on, NoteRow* whichNoteRow);
 	void endMidiLearnPressSession(MidiLearn newThingPressed = MidiLearn::NONE);
 	void noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int32_t channel, int32_t note, int32_t velocity);
+	void pcReceivedForMIDILearn(MIDIDevice* fromDevice, int32_t channel, int32_t pc) {}
 	void ccReceivedForMIDILearn(MIDIDevice* fromDevice, int32_t channel, int32_t cc, int32_t value);
 	void drumMidiLearnPadPressed(bool on, Drum* drum, Kit* kit);
 	void melodicInstrumentMidiLearnPadPressed(bool on, MelodicInstrument* instrument);
@@ -123,14 +124,17 @@ public:
 	uint32_t modLength;
 
 	bool isParamPan(Param::Kind kind, int32_t paramID);
+	bool isParamPitch(Param::Kind kind, int32_t paramID);
 	int32_t calculateKnobPosForDisplay(Param::Kind kind, int32_t paramID, int32_t knobPos);
+	void displayModEncoderValuePopup(Param::Kind kind, int32_t paramID, int32_t newKnobPos);
 	bool isParamQuantizedStutter(Param::Kind kind, int32_t paramID);
+	void sendMidiFollowFeedback(ModelStackWithAutoParam* modelStackWithParam = nullptr, int32_t knobPos = kNoSelection,
+	                            bool isAutomation = false);
 
 private:
 	void pretendModKnobsUntouchedForAWhile();
 	void instrumentBeenEdited();
 	void clearMelodicInstrumentMonoExpressionIfPossible();
-	void displayModEncoderValuePopup(Param::Kind kind, int32_t paramID, int32_t newKnobPos);
 };
 
 extern View view;

@@ -17,7 +17,7 @@
 
 #include "gui/views/performance_session_view.h"
 #include "definitions_cxx.hpp"
-#include "dsp/master_compressor/master_compressor.h"
+#include "dsp/compressor/rms_feedback.h"
 #include "extern.h"
 #include "gui/colour.h"
 #include "gui/context_menu/audio_input_selector.h"
@@ -1230,6 +1230,10 @@ bool PerformanceSessionView::setParameterValue(ModelStackWithThreeMainThings* mo
 				}
 			}
 
+			//midi follow and midi feedback enabled
+			//re-send midi cc because learned parameter value has changed
+			view.sendMidiFollowFeedback(modelStackWithParam, knobPos);
+
 			return true;
 		}
 	}
@@ -1276,12 +1280,7 @@ ModelStackWithAutoParam* PerformanceSessionView::getModelStackWithParam(ModelSta
 	ModelStackWithAutoParam* modelStackWithParam = nullptr;
 
 	if (modelStack) {
-		ParamCollectionSummary* summary = modelStack->paramManager->getUnpatchedParamSetSummary();
-
-		if (summary) {
-			ParamSet* paramSet = (ParamSet*)summary->paramCollection;
-			modelStackWithParam = modelStack->addParam(paramSet, summary, paramID, &paramSet->params[paramID]);
-		}
+		modelStackWithParam = modelStack->getUnpatchedAutoParamFromId(paramID);
 	}
 
 	return modelStackWithParam;

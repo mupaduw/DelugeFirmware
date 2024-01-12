@@ -17,7 +17,7 @@
 
 #include "model/song/song.h"
 #include "definitions_cxx.hpp"
-#include "dsp/master_compressor/master_compressor.h"
+#include "dsp/compressor/rms_feedback.h"
 #include "dsp/reverb/freeverb/revmodel.hpp"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/browser/browser.h"
@@ -32,6 +32,7 @@
 #include "hid/led/pad_leds.h"
 #include "hid/matrix/matrix_driver.h"
 #include "io/debug/print.h"
+#include "io/midi/device_specific/specific_midi_device.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_device_manager.h"
 #include "io/midi/midi_engine.h"
@@ -43,8 +44,8 @@
 #include "model/clip/instrument_clip.h"
 #include "model/clip/instrument_clip_minder.h"
 #include "model/consequence/consequence_clip_existence.h"
-#include "model/drum/kit.h"
 #include "model/instrument/cv_instrument.h"
+#include "model/instrument/kit.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/model_stack.h"
 #include "model/note/note_row.h"
@@ -71,6 +72,40 @@
 
 extern "C" {
 #include "RZA1/uart/sio_char.h"
+}
+
+Clip* getCurrentClip() {
+	return currentSong->currentClip;
+}
+
+InstrumentClip* getCurrentInstrumentClip() {
+	if (getCurrentClip()->type == CLIP_TYPE_INSTRUMENT) {
+		return (InstrumentClip*)getCurrentClip();
+	}
+	return nullptr;
+}
+
+AudioClip* getCurrentAudioClip() {
+	if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
+		return (AudioClip*)getCurrentClip();
+	}
+	return nullptr;
+}
+
+Output* getCurrentOutput() {
+	return getCurrentClip()->output;
+}
+
+Kit* getCurrentKit() {
+	return (Kit*)getCurrentClip()->output;
+}
+
+Instrument* getCurrentInstrument() {
+	return (Instrument*)getCurrentClip()->output;
+}
+
+InstrumentType getCurrentInstrumentType() {
+	return (InstrumentType)getCurrentInstrument()->type;
 }
 
 using namespace deluge;
@@ -127,6 +162,9 @@ Song::Song() : backedUpParamManagers(sizeof(BackedUpParamManager)) {
 	arrangerAutoScrollModeActive = false;
 
 	paramsInAutomationMode = false;
+
+	// default to off
+	midiLoopback = false;
 
 	// Setup reverb temp variables
 	reverbRoomSize = (float)30 / 50;
@@ -434,6 +472,7 @@ void Song::setRootNote(int32_t newRootNote, InstrumentClip* clipToAvoidAdjusting
 
 	int32_t oldRootNote = rootNote;
 	rootNote = newRootNote;
+
 	int32_t oldNumModeNotes = numModeNotes;
 	bool notesWithinOctavePresent[12];
 	for (int32_t i = 0; i < 12; i++) {
@@ -640,6 +679,7 @@ traverseClips:
 
 		instrumentClip->musicalModeChanged(yVisualWithinOctave, change, modelStackWithTimelineCounter);
 	}
+
 	if (clipArray != &arrangementOnlyClips) {
 		clipArray = &arrangementOnlyClips;
 		goto traverseClips;
@@ -757,6 +797,7 @@ traverseClips:
 
 		instrumentClip->noteRemovedFromMode(yNoteWithinOctave, this);
 	}
+
 	if (clipArray != &arrangementOnlyClips) {
 		clipArray = &arrangementOnlyClips;
 		goto traverseClips;
@@ -1089,6 +1130,8 @@ weAreInArrangementEditorOrInClipInstance:
 	storageManager.writeAttribute("activeModFunction", globalEffectable.modKnobMode);
 	storageManager.writeAttribute("timeStretchEnabled", timeStretchEnabled);
 
+	storageManager.writeAttribute("midiLoopback", midiLoopback);
+
 	globalEffectable.writeAttributesToFile(false);
 
 	storageManager
@@ -1205,8 +1248,8 @@ int32_t Song::readFromFile() {
 
 	outputClipInstanceListIsCurrentlyInvalid = true;
 
-	Debug::println("");
-	Debug::println("loading song!!!!!!!!!!!!!!");
+	D_PRINTLN("");
+	D_PRINTLN("loading song!!!!!!!!!!!!!!");
 
 	char const* tagName;
 
@@ -1217,7 +1260,7 @@ int32_t Song::readFromFile() {
 	uint64_t newTimePerTimerTick = (uint64_t)1 << 32; // TODO: make better!
 
 	while (*(tagName = storageManager.readNextTagOrAttributeName())) {
-		//Debug::println(tagName); delayMS(30);
+		//D_PRINTLN(tagName); delayMS(30);
 		switch (*(uint32_t*)tagName) {
 
 		// "reverb"
@@ -1479,6 +1522,11 @@ unknownTag:
 				storageManager.exitTag("affectEntire");
 			}
 
+			else if (!strcmp(tagName, "midiLoopback")) {
+				midiLoopback = storageManager.readTagOrAttributeValueInt();
+				storageManager.exitTag("midiLoopback");
+			}
+
 			else if (!strcmp(tagName, "songCompressor")) {
 				while (*(tagName = storageManager.readNextTagOrAttributeName())) {
 					if (!strcmp(tagName, "attack")) {
@@ -1704,8 +1752,7 @@ loadOutput:
 						return result;
 					}
 					if (ALPHA_OR_BETA_VERSION) {
-						Debug::print("unknown tag: ");
-						Debug::println(tagName);
+						D_PRINTLN("unknown tag:  %d", tagName);
 					}
 					storageManager.exitTag(tagName);
 				}
@@ -1776,7 +1823,7 @@ traverseClips:
 
 	anyOutputsSoloingInArrangement = false;
 
-	Debug::println("aaa1");
+	D_PRINTLN("aaa1");
 
 	// Match all ClipInstances up with their Clip. And while we're at it, check if any Outputs are soloing in arranger
 	for (Output* thisOutput = firstOutput; thisOutput; thisOutput = thisOutput->next) {
@@ -1852,7 +1899,7 @@ skipInstance:
 
 	outputClipInstanceListIsCurrentlyInvalid = false; // All clipInstances are valid now.
 
-	Debug::println("aaa2");
+	D_PRINTLN("aaa2");
 
 	// Ensure no arrangement-only Clips with no ClipInstance
 	// For each Clip in arrangement
@@ -1889,7 +1936,7 @@ skipInstance:
 		setInputTickScaleClip(newInputTickScaleClip);
 	}
 
-	Debug::println("aaa3");
+	D_PRINTLN("aaa3");
 	AudioEngine::logAction("aaa3.1");
 
 	AudioEngine::routineWithClusterLoading(); // -----------------------------------
@@ -5135,7 +5182,7 @@ void Song::cullAudioClipVoice() {
 
 	if (bestClip) {
 		bestClip->unassignVoiceSample();
-		Debug::println("audio clip voice culled!");
+		D_PRINTLN("audio clip voice culled!");
 	}
 }
 

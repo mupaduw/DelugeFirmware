@@ -20,6 +20,7 @@
 #include "extern.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/root_ui.h"
+#include "gui/views/automation_instrument_clip_view.h"
 #include "gui/views/instrument_clip_view.h"
 #include "gui/views/view.h"
 #include "io/midi/midi_device.h"
@@ -98,16 +99,15 @@ bool MelodicInstrument::readTagFromFile(char const* tagName) {
 	return true;
 }
 
-void MelodicInstrument::offerReceivedNote(ModelStackWithTimelineCounter* modelStack, MIDIDevice* fromDevice, bool on,
-                                          int32_t midiChannel, int32_t note, int32_t velocity, bool shouldRecordNotes,
-                                          bool* doingMidiThru) {
+void MelodicInstrument::receivedNote(ModelStackWithTimelineCounter* modelStack, MIDIDevice* fromDevice, bool on,
+                                     int32_t midiChannel, MIDIMatchType match, int32_t note, int32_t velocity,
+                                     bool shouldRecordNotes, bool* doingMidiThru) {
 	int16_t const* mpeValues = zeroMPEValues;
 	int16_t const* mpeValuesOrNull = NULL;
-	MIDIMatchType match = midiInput.checkMatch(fromDevice, midiChannel);
 	int32_t highlightNoteValue = -1;
 	switch (match) {
 	case MIDIMatchType::NO_MATCH:
-		break;
+		return;
 	case MIDIMatchType::MPE_MASTER:
 	case MIDIMatchType::MPE_MEMBER:
 		mpeValues = mpeValuesOrNull = fromDevice->defaultInputMPEValuesPerMIDIChannel[midiChannel];
@@ -125,7 +125,7 @@ void MelodicInstrument::offerReceivedNote(ModelStackWithTimelineCounter* modelSt
 		if (on) {
 			if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::HighlightIncomingNotes)
 			        == RuntimeFeatureStateToggle::On
-			    && instrumentClip == currentSong->currentClip) {
+			    && instrumentClip == getCurrentInstrumentClip()) {
 				highlightNoteValue = velocity;
 			}
 
@@ -236,7 +236,7 @@ justAuditionNote:
 		else {
 			if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::HighlightIncomingNotes)
 			        == RuntimeFeatureStateToggle::On
-			    && instrumentClip == currentSong->currentClip) {
+			    && instrumentClip == getCurrentInstrumentClip()) {
 				highlightNoteValue = 0;
 			}
 			// NoteRow must already be auditioning
@@ -295,11 +295,29 @@ justAuditionNote:
 	}
 }
 
+void MelodicInstrument::offerReceivedNote(ModelStackWithTimelineCounter* modelStack, MIDIDevice* fromDevice, bool on,
+                                          int32_t midiChannel, int32_t note, int32_t velocity, bool shouldRecordNotes,
+                                          bool* doingMidiThru) {
+	MIDIMatchType match = midiInput.checkMatch(fromDevice, midiChannel);
+	if (match != MIDIMatchType::NO_MATCH) {
+		receivedNote(modelStack, fromDevice, on, midiChannel, match, note, velocity, shouldRecordNotes, doingMidiThru);
+	}
+}
+
 void MelodicInstrument::offerReceivedPitchBend(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
                                                MIDIDevice* fromDevice, uint8_t channel, uint8_t data1, uint8_t data2,
                                                bool* doingMidiThru) {
+	MIDIMatchType match = midiInput.checkMatch(fromDevice, channel);
+	if (match != MIDIMatchType::NO_MATCH) {
+		receivedPitchBend(modelStackWithTimelineCounter, fromDevice, match, channel, data1, data2, doingMidiThru);
+	}
+}
+
+void MelodicInstrument::receivedPitchBend(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
+                                          MIDIDevice* fromDevice, MIDIMatchType match, uint8_t channel, uint8_t data1,
+                                          uint8_t data2, bool* doingMidiThru) {
 	int32_t newValue;
-	switch (midiInput.checkMatch(fromDevice, channel)) {
+	switch (match) {
 
 	case MIDIMatchType::NO_MATCH:
 		return;
@@ -307,7 +325,7 @@ void MelodicInstrument::offerReceivedPitchBend(ModelStackWithTimelineCounter* mo
 		//each of these are 7 bit values but we need them to represent the range +-2^31
 		newValue = (int32_t)(((uint32_t)data1 | ((uint32_t)data2 << 7)) - 8192) << 18;
 		// Unlike for whole-Instrument pitch bend, this per-note kind is a modulation *source*, not the "preset" value for the parameter!
-		polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, newValue, 0, channel,
+		polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, newValue, X_PITCH_BEND, channel,
 		                                          MIDICharacteristic::CHANNEL);
 		break;
 	case MIDIMatchType::MPE_MASTER:
@@ -327,29 +345,35 @@ void MelodicInstrument::offerReceivedPitchBend(ModelStackWithTimelineCounter* mo
 		break;
 	}
 }
-
 void MelodicInstrument::offerReceivedCC(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
                                         MIDIDevice* fromDevice, uint8_t channel, uint8_t ccNumber, uint8_t value,
                                         bool* doingMidiThru) {
+	MIDIMatchType match = midiInput.checkMatch(fromDevice, channel);
+	if (match != MIDIMatchType::NO_MATCH) {
+		receivedCC(modelStackWithTimelineCounter, fromDevice, match, channel, ccNumber, value, doingMidiThru);
+	}
+}
+void MelodicInstrument::receivedCC(ModelStackWithTimelineCounter* modelStackWithTimelineCounter, MIDIDevice* fromDevice,
+                                   MIDIMatchType match, uint8_t channel, uint8_t ccNumber, uint8_t value,
+                                   bool* doingMidiThru) {
 	int yCC = 1;
 	int32_t value32 = 0;
-	switch (midiInput.checkMatch(fromDevice, channel)) {
+	switch (match) {
 
 	case MIDIMatchType::NO_MATCH:
 		return;
 	case MIDIMatchType::MPE_MEMBER:
 		if (ccNumber == 74) { // All other CCs are not supposed to be used for Member Channels, for anything.
 			int32_t value32 = (value - 64) << 25;
-			polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, value32, 1, channel,
+			polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, value32, Y_SLIDE_TIMBRE, channel,
 			                                          MIDICharacteristic::CHANNEL);
+
+			possiblyRefreshAutomationEditorGrid(ccNumber);
+
 			return;
 		}
 	case MIDIMatchType::MPE_MASTER:
-		yCC = 74;
-		if (ccNumber == 74) {
-			value32 = (value - 64) << 25;
-		}
-		//no break
+		[[fallthrough]];
 	case MIDIMatchType::CHANNEL:
 		if (ccNumber == 1) {
 			value32 = (value) << 24;
@@ -369,21 +393,43 @@ void MelodicInstrument::offerReceivedCC(ModelStackWithTimelineCounter* modelStac
 
 		// Still send the cc even if the Output is muted. MidiInstruments will check for and block this themselves
 		ccReceivedFromInputMIDIChannel(ccNumber, value, modelStackWithTimelineCounter);
-		;
+
+		possiblyRefreshAutomationEditorGrid(ccNumber);
+	}
+}
+
+void MelodicInstrument::possiblyRefreshAutomationEditorGrid(int32_t ccNumber) {
+	//if you're in automation midi clip view and editing the same CC that was just updated
+	//by a learned midi knob, then re-render the pads on the automation editor grid
+	if (type == InstrumentType::MIDI_OUT) {
+		if (getRootUI() == &automationInstrumentClipView) {
+			if (((InstrumentClip*)activeClip)->lastSelectedParamID == ccNumber) {
+				uiNeedsRendering(&automationInstrumentClipView);
+			}
+		}
+	}
+}
+
+void MelodicInstrument::offerReceivedAftertouch(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
+                                                MIDIDevice* fromDevice, int32_t channel, int32_t value,
+                                                int32_t noteCode, bool* doingMidiThru) {
+	MIDIMatchType match = midiInput.checkMatch(fromDevice, channel);
+	if (match != MIDIMatchType::NO_MATCH) {
+		receivedAftertouch(modelStackWithTimelineCounter, fromDevice, match, channel, value, noteCode, doingMidiThru);
 	}
 }
 
 // noteCode -1 means channel-wide, including for MPE input (which then means it could still then just apply to one note).
-void MelodicInstrument::offerReceivedAftertouch(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
-                                                MIDIDevice* fromDevice, int32_t channel, int32_t value,
-                                                int32_t noteCode, bool* doingMidiThru) {
+void MelodicInstrument::receivedAftertouch(ModelStackWithTimelineCounter* modelStackWithTimelineCounter,
+                                           MIDIDevice* fromDevice, MIDIMatchType match, int32_t channel, int32_t value,
+                                           int32_t noteCode, bool* doingMidiThru) {
 	int32_t valueBig = (int32_t)value << 24;
-	switch (midiInput.checkMatch(fromDevice, channel)) {
+	switch (match) {
 
 	case MIDIMatchType::NO_MATCH:
 		return;
 	case MIDIMatchType::MPE_MEMBER:
-		polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, valueBig, 2, channel,
+		polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, valueBig, Z_PRESSURE, channel,
 		                                          MIDICharacteristic::CHANNEL);
 		break;
 	case MIDIMatchType::MPE_MASTER:
@@ -400,7 +446,7 @@ void MelodicInstrument::offerReceivedAftertouch(ModelStackWithTimelineCounter* m
 		// MPE should never send poly aftertouch but we might as well handle it anyway
 		// Polyphonic aftertouch gets processed along with MPE
 		if (noteCode != -1) {
-			polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, valueBig, 2, noteCode,
+			polyphonicExpressionEventPossiblyToRecord(modelStackWithTimelineCounter, valueBig, Z_PRESSURE, noteCode,
 			                                          MIDICharacteristic::NOTE);
 			// We wouldn't be here if this was MPE input, so we know this incoming polyphonic aftertouch message is allowed
 		}

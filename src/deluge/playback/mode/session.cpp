@@ -139,17 +139,15 @@ bool Session::giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clip
 		return false; // Not allowed if recording to arranger
 	}
 
-	bool currentClipHasSameOutput =
-	    (currentSong->currentClip
-	     && currentSong->currentClip->output
-	            == clip->output); // Must do this before calling opportunityToBeginLinearLoopRecording(), which may clone a new Output
+	// Must do this before calling opportunityToBeginLinearLoopRecording(), which may clone a new Output
+	bool currentClipHasSameOutput = (getCurrentClip() && getCurrentOutput() == clip->output);
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithTimelineCounter* modelStack = setupModelStackWithTimelineCounter(modelStackMemory, currentSong, clip);
 
 	bool newOutputCreated;
-	bool begun = clip->opportunityToBeginSessionLinearRecording(modelStack, &newOutputCreated,
-	                                                            buttonPressLatency); // May create new Output
+	// May create new Output
+	bool begun = clip->opportunityToBeginSessionLinearRecording(modelStack, &newOutputCreated, buttonPressLatency);
 
 	if (begun) {
 
@@ -169,11 +167,10 @@ bool Session::giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clip
 		if (clip->overdubNature != OverDubType::Normal && playbackHandler.isEitherClockActive()) {
 			armClipToStopAction(clip);
 
-			// Create new clip if we're continuous-layering
 			if (clip->getCurrentlyRecordingLinearly() && clip->overdubNature == OverDubType::ContinuousLayering) {
-				currentSong->createPendingNextOverdubBelowClip(
-				    clip, clipIndex,
-				    OverDubType::ContinuousLayering); // Make it spawn more too
+				// Create new clip if we're continuous-layering
+				// Make it spawn more too
+				currentSong->createPendingNextOverdubBelowClip(clip, clipIndex, OverDubType::ContinuousLayering);
 			}
 		}
 	}
@@ -981,8 +978,8 @@ void Session::toggleClipStatus(Clip* clip, int32_t* clipIndex, bool doInstant, i
 							armClipToStopAction(clip);
 
 							sessionView.clipNeedsReRendering(clip);
-							if (currentSong->currentClip) {
-								if (((InstrumentClip*)currentSong->currentClip)->onAutomationInstrumentClipView) {
+							if (getCurrentClip()) {
+								if (getCurrentInstrumentClip()->onAutomationInstrumentClipView) {
 									uiNeedsRendering(&automationInstrumentClipView, 0xFFFFFFFF, 0);
 								}
 								else {
@@ -1420,7 +1417,7 @@ int32_t Session::investigateSyncedLaunch(Clip* waitForClip, uint32_t* currentPos
 
 // Returns whether we are now armed. If not, it means it's just done the swap already in this function
 bool Session::armForSongSwap() {
-	Debug::println("Session::armForSongSwap()");
+	D_PRINTLN("Session::armForSongSwap()");
 
 	Clip* waitForClip = currentSong->getLongestClip(false, true);
 
@@ -1441,8 +1438,7 @@ bool Session::armForSongSwap() {
 		int32_t pos = currentPosWithinQuantization % quantization;
 		int32_t ticksTilSwap = quantization - pos;
 		scheduleLaunchTiming(playbackHandler.getActualSwungTickCount() + ticksTilSwap, 1, quantization);
-		Debug::print("ticksTilSwap: ");
-		Debug::println(ticksTilSwap);
+		D_PRINTLN("ticksTilSwap:  %d", ticksTilSwap);
 	}
 	else if (launchStatus == LAUNCH_STATUS_LAUNCH_ALONG_WITH_EXISTING_LAUNCHING) {
 		// Nothing to do!

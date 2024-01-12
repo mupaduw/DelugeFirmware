@@ -46,10 +46,12 @@
 #include "hid/led/pad_leds.h"
 #include "hid/matrix/matrix_driver.h"
 #include "io/debug/print.h"
+#include "io/midi/device_specific/specific_midi_device.h"
 #include "io/midi/learned_midi.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_device_manager.h"
 #include "io/midi/midi_engine.h"
+#include "io/midi/midi_follow.h"
 #include "model/action/action_logger.h"
 #include "model/clip/audio_clip.h"
 #include "model/clip/clip_instance.h"
@@ -57,8 +59,8 @@
 #include "model/clip/instrument_clip_minder.h"
 #include "model/consequence/consequence.h"
 #include "model/drum/drum.h"
-#include "model/drum/kit.h"
 #include "model/instrument/instrument.h"
+#include "model/instrument/kit.h"
 #include "model/instrument/melodic_instrument.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/model_stack.h"
@@ -318,76 +320,53 @@ doEndMidiLearnPressSession:
 		}
 	}
 
+	// Sync-scaling button - can be repurposed as Fill Mode in community settings
 	else if (b == SYNC_SCALING) {
-
-		// <shift><Sync-scaling> -> toggle song time-stretching
-		if (on && Buttons::isShiftButtonPressed()) {
-			if (on) {
-				currentSong->timeStretchEnabled = !currentSong->timeStretchEnabled;
-				// show the user the new value with a PopUp message
-				if (currentSong->timeStretchEnabled) {
-					display->displayPopup(
-					    deluge::l10n::get(deluge::l10n::String::STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_ON), 2);
-				}
-				else {
-					display->displayPopup(
-					    deluge::l10n::get(deluge::l10n::String::STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_OFF), 2);
-				}
-			}
+		if ((runtimeFeatureSettings.get(RuntimeFeatureSettingType::SyncScalingAction)
+		     == RuntimeFeatureStateSyncScalingAction::Fill)) {
+			currentSong->changeFillMode(on);
 		}
+		else if (on && currentUIMode == UI_MODE_NONE) {
 
-		// unshifted sync-scaling behaviour
-		if (on && !Buttons::isShiftButtonPressed() && currentUIMode == UI_MODE_NONE) {
-
-			// Sync-scaling button - can be repurposed as Fill Mode in community settings
-			if ((runtimeFeatureSettings.get(RuntimeFeatureSettingType::SyncScalingAction)
-			     == RuntimeFeatureStateSyncScalingAction::Fill)) {
-				currentSong->changeFillMode(on);
+			if (playbackHandler.recording == RECORDING_ARRANGEMENT) {
+cant:
+				display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
+				return ActionResult::DEALT_WITH;
 			}
 
-			//legacy sync-scaling
-			else if (on && currentUIMode == UI_MODE_NONE) {
+			if (inCardRoutine) {
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
 
-				if (playbackHandler.recording == RECORDING_ARRANGEMENT) {
-cant:
-					display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
+			// If no scaling currently, start it, if we're on a Clip-minder screen
+			if (!currentSong->getSyncScalingClip()) {
+				if (!getCurrentUI()->toClipMinder()) {
+					indicator_leds::indicateAlertOnLed(IndicatorLED::CLIP_VIEW);
 					return ActionResult::DEALT_WITH;
 				}
 
-				if (inCardRoutine) {
-					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				// Can't do it for arranger-only Clips
+				if (getCurrentClip()->isArrangementOnlyClip()) {
+					goto cant;
 				}
 
-				// If no scaling currently, start it, if we're on a Clip-minder screen
-				if (!currentSong->getSyncScalingClip()) {
-					if (!getCurrentUI()->toClipMinder()) {
-						indicator_leds::indicateAlertOnLed(IndicatorLED::CLIP_VIEW);
-						return ActionResult::DEALT_WITH;
-					}
-
-					// Can't do it for arranger-only Clips
-					if (currentSong->currentClip->isArrangementOnlyClip()) {
-						goto cant;
-					}
-
-					// Can't do it for Clips recording linearly
-					if (currentSong->currentClip->getCurrentlyRecordingLinearly()) {
-						goto cant;
-					}
-
-					currentSong->setInputTickScaleClip(currentSong->currentClip);
+				// Can't do it for Clips recording linearly
+				if (getCurrentClip()->getCurrentlyRecordingLinearly()) {
+					goto cant;
 				}
 
-				// Or if scaling already, stop it
-				else {
-					currentSong->setInputTickScaleClip(NULL);
-				}
-
-				actionLogger.deleteAllLogs(); // Can't undo past this.
-
-				playbackHandler.resyncInternalTicksToInputTicks(currentSong);
-				setTimeBaseScaleLedState();
+				currentSong->setInputTickScaleClip(getCurrentClip());
 			}
+
+			// Or if scaling already, stop it
+			else {
+				currentSong->setInputTickScaleClip(NULL);
+			}
+
+			actionLogger.deleteAllLogs(); // Can't undo past this.
+
+			playbackHandler.resyncInternalTicksToInputTicks(currentSong);
+			setTimeBaseScaleLedState();
 		}
 	}
 
@@ -487,7 +466,7 @@ void View::endMIDILearn() {
 
 void View::setTimeBaseScaleLedState() {
 	// If this Clip is the inputTickScaleClip, flash the LED
-	if (getCurrentUI()->toClipMinder() && currentSong->currentClip == currentSong->getSyncScalingClip()) {
+	if (getCurrentUI()->toClipMinder() && getCurrentClip() == currentSong->getSyncScalingClip()) {
 		indicator_leds::blinkLed(IndicatorLED::SYNC_SCALING);
 	}
 
@@ -556,7 +535,7 @@ void View::drumMidiLearnPadPressed(bool on, Drum* drum, Kit* kit) {
 	else if (thingPressedForMidiLearn == MidiLearn::DRUM_INPUT) {
 		if (deleteMidiCommandOnRelease) {
 			learnedThing->clear();
-			((Instrument*)currentSong->currentClip->output)->beenEdited(false);
+			getCurrentInstrument()->beenEdited(false);
 		}
 		endMidiLearnPressSession();
 	}
@@ -596,6 +575,9 @@ void View::endMidiLearnPressSession(MidiLearn newThingPressed) {
 
 	// And, store the actual change
 	thingPressedForMidiLearn = newThingPressed;
+
+	// Hook point for specificMidiDevice
+	iterateAndCallSpecificDeviceHook(MIDIDeviceUSBHosted::Hook::HOOK_ON_MIDI_LEARN);
 }
 
 void View::noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int32_t channelOrZone, int32_t note, int32_t velocity) {
@@ -606,7 +588,7 @@ void View::noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int32_t channelOrZ
 
 		case MidiLearn::DRUM_INPUT: {
 			// For a Drum, we can assume that the user must be viewing a Clip, as the currentClip.
-			((Instrument*)currentSong->currentClip->output)->beenEdited(false);
+			getCurrentInstrument()->beenEdited(false);
 
 			// Copy bend ranges if appropriate. This logic is duplicated in NoteRow::setDrum().
 			int32_t newBendRange;
@@ -619,8 +601,7 @@ void View::noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int32_t channelOrZ
 			}
 
 			if (newBendRange) {
-				NoteRow* noteRow =
-				    ((InstrumentClip*)currentSong->currentClip)->getNoteRowForDrum(drumPressedForMIDILearn);
+				NoteRow* noteRow = getCurrentInstrumentClip()->getNoteRowForDrum(drumPressedForMIDILearn);
 				if (noteRow) {
 					ExpressionParamSet* expressionParams = noteRow->paramManager.getOrCreateExpressionParamSet(true);
 					if (expressionParams) {
@@ -647,6 +628,7 @@ void View::noteOnReceivedForMidiLearn(MIDIDevice* fromDevice, int32_t channelOrZ
 
 		default:
 recordDetailsOfLearnedThing:
+
 			learnedThing->device = fromDevice;
 			learnedThing->channelOrZone = channelOrZone;
 			learnedThing->noteOrCC = note;
@@ -783,20 +765,19 @@ void View::ccReceivedForMIDILearn(MIDIDevice* fromDevice, int32_t channel, int32
 		if (thingPressedForMidiLearn == MidiLearn::MELODIC_INSTRUMENT_INPUT) {
 
 			// Special case for MIDIInstruments - CCs can learn the input MIDI channel
-			if (currentSong->currentClip->output->type == InstrumentType::MIDI_OUT) {
+			if (getCurrentInstrumentType() == InstrumentType::MIDI_OUT) {
 
 				// But only if user hasn't already started learning MPE stuff... Or regular note-ons...
 				if (highestMIDIChannelSeenWhileLearning < lowestMIDIChannelSeenWhileLearning) {
 					learnedThing->device = fromDevice;
 					learnedThing->channelOrZone = channel;
-					((Instrument*)currentSong->currentClip->output)->beenEdited(false);
+					getCurrentInstrument()->beenEdited(false);
 				}
 			}
 		}
 
 		// Or, for all other types of things the user might be holding down...
 		else {
-
 			// So long as the value wasn't 0, pretend it was a note-on for command-learn purposes
 			if (value) {
 				noteOnReceivedForMidiLearn(fromDevice, channel + IS_A_CC, cc, 127);
@@ -903,11 +884,32 @@ void View::modEncoderAction(int32_t whichModEncoder, int32_t offset) {
 					return;
 				}
 
-				displayModEncoderValuePopup(kind, modelStackWithParam->paramId, newKnobPos);
+				//if you had selected a parameter in performance view and the parameter name
+				//and current value is displayed on the screen, don't show pop-up as the display
+				//already shows it
+				//this checks that the param displayed on the screen in performance view
+				//is the same param currently being edited with mod encoder
+				bool editingParamInPerformanceView = false;
+				if (getRootUI() == &performanceSessionView) {
+					if (!performanceSessionView.defaultEditingMode && performanceSessionView.lastPadPress.isActive) {
+						if ((kind == performanceSessionView.lastPadPress.paramKind)
+						    && (modelStackWithParam->paramId == performanceSessionView.lastPadPress.paramID)) {
+							editingParamInPerformanceView = true;
+						}
+					}
+				}
+
+				if (!editingParamInPerformanceView) {
+					displayModEncoderValuePopup(kind, modelStackWithParam->paramId, newKnobPos);
+				}
 
 				if (newKnobPos == knobPos) {
 					return;
 				}
+
+				//midi follow and midi feedback enabled
+				//re-send midi cc because learned parameter value has changed
+				sendMidiFollowFeedback(modelStackWithParam, newKnobPos);
 
 				char newModelStackMemory[MODEL_STACK_MAX_SIZE];
 
@@ -1002,15 +1004,15 @@ int32_t View::calculateKnobPosForDisplay(Param::Kind kind, int32_t paramID, int3
 	float knobPosOffsetFloat = static_cast<float>(kKnobPosOffset);
 	float maxKnobPosFloat = static_cast<float>(kMaxKnobPos);
 	float maxMenuValueFloat = static_cast<float>(kMaxMenuValue);
-	float maxMenuPanValueFloat = static_cast<float>(kMaxMenuPanValue);
+	float maxMenuRelativeValueFloat = static_cast<float>(kMaxMenuRelativeValue);
 	float valueForDisplayFloat;
 
 	//calculate parameter value for display by converting 0 - 128 range to same range as menu (0 - 50)
 	valueForDisplayFloat = (knobPosFloat / maxKnobPosFloat) * maxMenuValueFloat;
 
-	//check if parameter is pan, in which case, further adjust range from 0 - 50 to -25 to +25
-	if (isParamPan(kind, paramID)) {
-		valueForDisplayFloat = valueForDisplayFloat - maxMenuPanValueFloat;
+	//check if parameter is pan or pitch, in which case, further adjust range from 0 - 50 to -25 to +25
+	if (isParamPan(kind, paramID) || isParamPitch(kind, paramID)) {
+		valueForDisplayFloat = valueForDisplayFloat - maxMenuRelativeValueFloat;
 	}
 
 returnValue:
@@ -1019,7 +1021,7 @@ returnValue:
 
 //check if Parameter is Stutter Rate and if Quantized Stutter Community Feature is enabled
 bool View::isParamQuantizedStutter(Param::Kind kind, int32_t paramID) {
-	if (!runtimeFeatureSettings.get(RuntimeFeatureSettingType::QuantizedStutterRate) == RuntimeFeatureStateToggle::On) {
+	if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::QuantizedStutterRate) != RuntimeFeatureStateToggle::On) {
 		return false;
 	}
 	if ((kind == Param::Kind::UNPATCHED_GLOBAL || kind == Param::Kind::UNPATCHED_SOUND)
@@ -1030,10 +1032,21 @@ bool View::isParamQuantizedStutter(Param::Kind kind, int32_t paramID) {
 }
 
 bool View::isParamPan(Param::Kind kind, int32_t paramID) {
-	if (kind == Param::Kind::PATCHED && paramID == Param::Local::PAN) {
+	if ((kind == Param::Kind::PATCHED && paramID == Param::Local::PAN)
+	    || (kind == Param::Kind::UNPATCHED_GLOBAL && paramID == Param::Unpatched::GlobalEffectable::PAN)) {
 		return true;
 	}
-	if (kind == Param::Kind::UNPATCHED_GLOBAL && paramID == Param::Unpatched::GlobalEffectable::PAN) {
+
+	return false;
+}
+
+bool View::isParamPitch(Param::Kind kind, int32_t paramID) {
+	if ((kind == Param::Kind::PATCHED && paramID == Param::Local::PITCH_ADJUST)
+	    || (kind == Param::Kind::PATCHED && paramID == Param::Local::OSC_A_PITCH_ADJUST)
+	    || (kind == Param::Kind::PATCHED && paramID == Param::Local::OSC_B_PITCH_ADJUST)
+	    || (kind == Param::Kind::PATCHED && paramID == Param::Local::MODULATOR_0_PITCH_ADJUST)
+	    || (kind == Param::Kind::PATCHED && paramID == Param::Local::MODULATOR_1_PITCH_ADJUST)
+	    || (kind == Param::Kind::UNPATCHED_GLOBAL && paramID == Param::Unpatched::GlobalEffectable::PITCH_ADJUST)) {
 		return true;
 	}
 
@@ -1126,12 +1139,32 @@ void View::setKnobIndicatorLevel(uint8_t whichModEncoder) {
 
 	if (modelStackWithParam->autoParam) {
 		int32_t value = modelStackWithParam->autoParam->getValuePossiblyAtPos(modPos, modelStackWithParam);
-		knobPos = modelStackWithParam->paramCollection->paramValueToKnobPos(value, modelStackWithParam);
+		ParamCollection* paramCollection = modelStackWithParam->paramCollection;
+		knobPos = paramCollection->paramValueToKnobPos(value, modelStackWithParam);
 		if (knobPos < -64) {
 			knobPos = -64;
 		}
 		else if (knobPos > 64) {
 			knobPos = 64;
+		}
+
+		if (isParamQuantizedStutter(paramCollection->getParamKind(), modelStackWithParam->paramId)
+		    && !isUIModeActive(UI_MODE_STUTTERING)) {
+			if (knobPos < -39) { // 4ths stutter: no leds turned on
+				knobPos = -64;
+			}
+			else if (knobPos < -14) { // 8ths stutter: 1 led turned on
+				knobPos = -32;
+			}
+			else if (knobPos < 14) { // 16ths stutter: 2 leds turned on
+				knobPos = 0;
+			}
+			else if (knobPos < 39) { // 32nds stutter: 3 leds turned on
+				knobPos = 32;
+			}
+			else { // 64ths stutter: all 4 leds turned on
+				knobPos = 64;
+			}
 		}
 	}
 	else {
@@ -1140,29 +1173,7 @@ void View::setKnobIndicatorLevel(uint8_t whichModEncoder) {
 	}
 
 	// Quantized Stutter FX
-	if (modelStackWithParam->paramId == Param::Unpatched::STUTTER_RATE
-	    && (runtimeFeatureSettings.get(RuntimeFeatureSettingType::QuantizedStutterRate)
-	        == RuntimeFeatureStateToggle::On)
-	    && !isUIModeActive(UI_MODE_STUTTERING)) {
-		if (knobPos < -39) { // 4ths stutter: no leds turned on
-			indicator_leds::setKnobIndicatorLevel(whichModEncoder, 0);
-		}
-		else if (knobPos < -14) { // 8ths stutter: 1 led turned on
-			indicator_leds::setKnobIndicatorLevel(whichModEncoder, 32);
-		}
-		else if (knobPos < 14) { // 16ths stutter: 2 leds turned on
-			indicator_leds::setKnobIndicatorLevel(whichModEncoder, 64);
-		}
-		else if (knobPos < 39) { // 32nds stutter: 3 leds turned on
-			indicator_leds::setKnobIndicatorLevel(whichModEncoder, 96);
-		}
-		else { // 64ths stutter: all 4 leds turned on
-			indicator_leds::setKnobIndicatorLevel(whichModEncoder, 128);
-		}
-	}
-	else {
-		indicator_leds::setKnobIndicatorLevel(whichModEncoder, knobPos + 64);
-	}
+	indicator_leds::setKnobIndicatorLevel(whichModEncoder, knobPos + 64);
 }
 
 static const uint32_t modButtonUIModes[] = {UI_MODE_AUDITIONING,
@@ -1220,7 +1231,7 @@ void View::setModLedStates() {
 			affectEntire = true;
 		}
 		else {
-			affectEntire = ((InstrumentClip*)currentSong->currentClip)->affectEntire;
+			affectEntire = getCurrentInstrumentClip()->affectEntire;
 		}
 	}
 	indicator_leds::setLedState(IndicatorLED::AFFECT_ENTIRE, affectEntire);
@@ -1250,7 +1261,7 @@ void View::setModLedStates() {
 			}
 		}
 		else if (getRootUI() == &keyboardScreen) {
-			if (((InstrumentClip*)currentSong->currentClip)->onAutomationInstrumentClipView) {
+			if (getCurrentInstrumentClip()->onAutomationInstrumentClipView) {
 				goto setBlinkLED;
 			}
 		}
@@ -1320,6 +1331,29 @@ void View::notifyParamAutomationOccurred(ParamManager* paramManager, bool update
 				pendingParamAutomationUpdatesModLevels = true;
 			}
 		}
+
+		if (!uiTimerManager.isTimerSet(TIMER_SEND_MIDI_FEEDBACK_FOR_AUTOMATION)) {
+			uiTimerManager.setTimer(TIMER_SEND_MIDI_FEEDBACK_FOR_AUTOMATION, 25);
+		}
+	}
+}
+
+void View::sendMidiFollowFeedback(ModelStackWithAutoParam* modelStackWithParam, int32_t knobPos, bool isAutomation) {
+	int32_t channel = midiEngine.midiFollowChannelType[util::to_underlying(MIDIFollowChannelType::PARAM)].channelOrZone;
+	if ((channel != MIDI_CHANNEL_NONE) && midiEngine.midiFollowFeedback
+	    && activeModControllableModelStack.modControllable) {
+		if (modelStackWithParam && modelStackWithParam->autoParam) {
+			Param::Kind kind = modelStackWithParam->paramCollection->getParamKind();
+			int32_t ccNumber = midiFollow.getCCFromParam(kind, modelStackWithParam->paramId);
+			if (ccNumber != MIDI_CC_NONE) {
+				((ModControllableAudio*)activeModControllableModelStack.modControllable)
+				    ->sendCCForMidiFollowFeedback(channel, ccNumber, knobPos);
+			}
+		}
+		else {
+			((ModControllableAudio*)activeModControllableModelStack.modControllable)
+			    ->sendCCWithoutModelStackForMidiFollowFeedback(channel, isAutomation);
+		}
 	}
 }
 
@@ -1351,6 +1385,10 @@ void View::setActiveModControllableTimelineCounter(TimelineCounter* timelineCoun
 
 	setModLedStates();
 	setKnobIndicatorLevels();
+
+	//midi follow and midi feedback enabled
+	//re-send midi cc's because learned parameter values may have changed
+	sendMidiFollowFeedback();
 }
 
 void View::setActiveModControllableWithoutTimelineCounter(ModControllable* modControllable,
@@ -2006,7 +2044,8 @@ bool View::changeInstrumentType(InstrumentType newInstrumentType, ModelStackWith
 		return false;
 	}
 
-	setActiveModControllableTimelineCounter(clip); // Do a redraw. Obviously the Clip is the same
+	// Do a redraw. Obviously the Clip is the same
+	setActiveModControllableTimelineCounter(clip);
 	displayOutputName(newInstrument, doBlink);
 	if (display->haveOLED()) {
 		deluge::hid::display::OLED::sendMainImage();
@@ -2018,8 +2057,8 @@ bool View::changeInstrumentType(InstrumentType newInstrumentType, ModelStackWith
 void View::instrumentChanged(ModelStackWithTimelineCounter* modelStack, Instrument* newInstrument) {
 
 	((Clip*)modelStack->getTimelineCounter())->outputChanged(modelStack, newInstrument);
-	setActiveModControllableTimelineCounter(
-	    modelStack->getTimelineCounter()); // Do a redraw. Obviously the Clip is the same
+	// Do a redraw. Obviously the Clip is the same
+	setActiveModControllableTimelineCounter(modelStack->getTimelineCounter());
 }
 
 void View::getClipMuteSquareColour(Clip* clip, uint8_t thisColour[], bool dimInactivePads, bool allowMIDIFlash) {
@@ -2223,7 +2262,7 @@ void View::flashPlayDisable() {
 	}
 #ifdef currentClipStatusButtonX
 	else if (getRootUI()->toClipMinder()) {
-		drawCurrentClipPad(currentSong->currentClip);
+		drawCurrentClipPad(getCurrentClip());
 	}
 #endif
 }

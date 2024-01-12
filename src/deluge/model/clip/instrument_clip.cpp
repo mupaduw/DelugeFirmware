@@ -38,8 +38,8 @@
 #include "model/consequence/consequence_note_row_mute.h"
 #include "model/consequence/consequence_scale_add_note.h"
 #include "model/drum/drum_name.h"
-#include "model/drum/kit.h"
 #include "model/instrument/cv_instrument.h"
+#include "model/instrument/kit.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/model_stack.h"
 #include "model/note/note.h"
@@ -479,7 +479,7 @@ int32_t InstrumentClip::beginLinearRecording(ModelStackWithTimelineCounter* mode
 					int32_t probability = noteRow->getDefaultProbability(modelStackWithNoteRow);
 					noteRow->attemptNoteAdd(0, 1, velocity, probability, modelStackWithNoteRow, action);
 					if (!thisDrum->earlyNoteStillActive) {
-						Debug::println("skipping next note");
+						D_PRINTLN("skipping next note");
 						noteRow->skipNextNote = true;
 					}
 				}
@@ -2334,7 +2334,7 @@ someError:
 	int32_t readAutomationUpToPos = kMaxSequenceLength;
 
 	while (*(tagName = storageManager.readNextTagOrAttributeName())) {
-		//Debug::println(tagName); delayMS(30);
+		//D_PRINTLN(tagName); delayMS(30);
 
 		int32_t temp;
 

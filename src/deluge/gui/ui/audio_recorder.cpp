@@ -33,7 +33,7 @@
 #include "model/action/action_logger.h"
 #include "model/clip/instrument_clip.h"
 #include "model/clip/instrument_clip_minder.h"
-#include "model/drum/kit.h"
+#include "model/instrument/kit.h"
 #include "model/sample/sample_recorder.h"
 #include "model/song/song.h"
 #include "playback/playback_handler.h"
@@ -88,8 +88,8 @@ bool AudioRecorder::opened() {
 	}
 
 	// If recording for a Drum, set the name of the Drum
-	if (currentSong->currentClip->output->type == InstrumentType::KIT) {
-		Kit* kit = (Kit*)currentSong->currentClip->output;
+	if (getCurrentInstrumentType() == InstrumentType::KIT) {
+		Kit* kit = getCurrentKit();
 		SoundDrum* drum = (SoundDrum*)soundEditor.currentSound;
 		String newName;
 

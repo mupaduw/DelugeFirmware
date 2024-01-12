@@ -17,7 +17,7 @@
 
 #include "gui/views/session_view.h"
 #include "definitions_cxx.hpp"
-#include "dsp/master_compressor/master_compressor.h"
+#include "dsp/compressor/rms_feedback.h"
 #include "extern.h"
 #include "gui/colour.h"
 #include "gui/context_menu/audio_input_selector.h"
@@ -41,6 +41,7 @@
 #include "hid/led/indicator_leds.h"
 #include "hid/led/pad_leds.h"
 #include "io/debug/print.h"
+#include "io/midi/device_specific/specific_midi_device.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
 #include "model/clip/audio_clip.h"
@@ -138,11 +139,14 @@ void SessionView::focusRegained() {
 	                                  // loadInstrumentPresetUI, need to at least redraw, and also really need to
 	                                  // re-render stuff in case note-tails-being-allowed has changed
 
+	//needs to be set before setActiveModControllableTimelineCounter so that midi follow mode can get
+	//the right model stack with param (otherwise midi follow mode will think you're still in a clip)
+	selectedClipYDisplay = 255;
+
 	ClipNavigationTimelineView::focusRegained();
 	view.focusRegained();
 	view.setActiveModControllableTimelineCounter(currentSong);
 
-	selectedClipYDisplay = 255;
 	if (display->haveOLED()) {
 		setCentralLEDStates();
 	}
@@ -970,6 +974,11 @@ void SessionView::clipPressEnded() {
 	if (currentUIMode == UI_MODE_EXPLODE_ANIMATION) {
 		return;
 	}
+	//needs to be set before setActiveModControllableTimelineCounter so that midi follow mode can get
+	//the right model stack with param (otherwise midi follow mode will think you're still in a clip)
+	selectedClipYDisplay = 255;
+	clipWasSelectedWithShift = false;
+	gridResetPresses();
 
 	currentUIMode = UI_MODE_NONE;
 	view.setActiveModControllableTimelineCounter(currentSong);
@@ -980,9 +989,6 @@ void SessionView::clipPressEnded() {
 	else {
 		redrawNumericDisplay();
 	}
-	selectedClipYDisplay = 255;
-	clipWasSelectedWithShift = false;
-	gridResetPresses();
 }
 
 void SessionView::sectionPadAction(uint8_t y, bool on) {
@@ -2420,7 +2426,7 @@ bool SessionView::renderRow(ModelStack* modelStack, uint8_t yDisplay,
 void SessionView::transitionToViewForClip(Clip* clip) {
 	// If no Clip, just go back into the previous one we were in
 	if (!clip) {
-		clip = currentSong->currentClip;
+		clip = getCurrentClip();
 
 		// If there was no previous one (e.g. because we just loaded the Song), do nothing.
 		if (!clip || clip->section == 255) {
@@ -2499,12 +2505,15 @@ void SessionView::transitionToViewForClip(Clip* clip) {
 		PadLEDs::setupInstrumentClipCollapseAnimation(true);
 
 		PadLEDs::renderClipExpandOrCollapse();
+
+		// Hook point for specificMidiDevice
+		iterateAndCallSpecificDeviceHook(MIDIDeviceUSBHosted::Hook::HOOK_ON_TRANSITION_TO_SESSION_VIEW);
 	}
 
 	// AudioClips
 	else {
 
-		AudioClip* clip = (AudioClip*)currentSong->currentClip;
+		AudioClip* clip = getCurrentAudioClip();
 
 		Sample* sample = (Sample*)clip->sampleHolder.audioFile;
 
@@ -2535,15 +2544,15 @@ void SessionView::transitionToSessionView() {
 		return;
 	}
 
-	if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
-		AudioClip* clip = (AudioClip*)currentSong->currentClip;
+	if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
+		AudioClip* clip = getCurrentAudioClip();
 		if (!clip || !clip->sampleHolder.audioFile) { // !clip probably couldn't happen, but just in case...
 			memcpy(PadLEDs::imageStore, PadLEDs::image, sizeof(PadLEDs::image));
 			finishedTransitioningHere();
 		}
 		else {
 			currentUIMode = UI_MODE_AUDIO_CLIP_COLLAPSING;
-			waveformRenderer.collapseAnimationToWhichRow = getClipPlaceOnScreen(currentSong->currentClip);
+			waveformRenderer.collapseAnimationToWhichRow = getClipPlaceOnScreen(getCurrentClip());
 
 			PadLEDs::setupAudioClipCollapseOrExplodeAnimation(clip);
 
@@ -2552,8 +2561,8 @@ void SessionView::transitionToSessionView() {
 		}
 	}
 	else {
-		int32_t transitioningToRow = getClipPlaceOnScreen(currentSong->currentClip);
-		InstrumentClip* instrumentClip = (InstrumentClip*)currentSong->currentClip;
+		int32_t transitioningToRow = getClipPlaceOnScreen(getCurrentClip());
+		InstrumentClip* instrumentClip = getCurrentInstrumentClip();
 		if (instrumentClip->onKeyboardScreen) {
 			keyboardScreen.renderMainPads(0xFFFFFFFF, &PadLEDs::imageStore[1], &PadLEDs::occupancyMaskStore[1], false);
 			keyboardScreen.renderSidebar(0xFFFFFFFF, &PadLEDs::imageStore[1], &PadLEDs::occupancyMaskStore[1]);
@@ -2593,6 +2602,9 @@ void SessionView::transitionToSessionView() {
 		PadLEDs::recordTransitionBegin(kClipCollapseSpeed);
 		PadLEDs::renderClipExpandOrCollapse();
 	}
+
+	// Hook point for specificMidiDevice
+	iterateAndCallSpecificDeviceHook(MIDIDeviceUSBHosted::Hook::HOOK_ON_TRANSITION_TO_SESSION_VIEW);
 }
 
 // Might be called during card routine! So renders might fail. Not too likely
@@ -3649,9 +3661,9 @@ ActionResult SessionView::gridHandleScroll(int32_t offsetX, int32_t offsetY) {
 void SessionView::gridTransitionToSessionView() {
 	Sample* sample;
 
-	if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
+	if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
 		// If no sample, just skip directly there
-		if (!((AudioClip*)currentSong->currentClip)->sampleHolder.audioFile) {
+		if (!getCurrentAudioClip()->sampleHolder.audioFile) {
 			changeRootUI(&sessionView);
 			memcpy(PadLEDs::imageStore, PadLEDs::image, sizeof(PadLEDs::image));
 			finishedTransitioningHere();
@@ -3667,14 +3679,14 @@ void SessionView::gridTransitionToSessionView() {
 		instrumentClipView.fillOffScreenImageStores();
 	}
 
-	auto clipX = std::clamp<int32_t>(
-	    gridXFromTrack(gridTrackIndexFromTrack(currentSong->currentClip->output, gridTrackCount())), 0, kDisplayWidth);
-	auto clipY = std::clamp<int32_t>(gridYFromSection(currentSong->currentClip->section), 0, kDisplayHeight);
+	auto clipX = std::clamp<int32_t>(gridXFromTrack(gridTrackIndexFromTrack(getCurrentOutput(), gridTrackCount())), 0,
+	                                 kDisplayWidth);
+	auto clipY = std::clamp<int32_t>(gridYFromSection(getCurrentClip()->section), 0, kDisplayHeight);
 
-	if (currentSong->currentClip->type == CLIP_TYPE_AUDIO) {
+	if (getCurrentClip()->type == CLIP_TYPE_AUDIO) {
 		waveformRenderer.collapseAnimationToWhichRow = clipY;
 
-		PadLEDs::setupAudioClipCollapseOrExplodeAnimation((AudioClip*)currentSong->currentClip);
+		PadLEDs::setupAudioClipCollapseOrExplodeAnimation(getCurrentAudioClip());
 	}
 	else {
 		PadLEDs::explodeAnimationYOriginBig = clipY << 16;
@@ -3692,6 +3704,9 @@ void SessionView::gridTransitionToSessionView() {
 
 	PadLEDs::explodeAnimationTargetUI = this;
 	uiTimerManager.setTimer(TIMER_MATRIX_DRIVER, 35);
+
+	// Hook point for specificMidiDevice
+	iterateAndCallSpecificDeviceHook(MIDIDeviceUSBHosted::Hook::HOOK_ON_TRANSITION_TO_SESSION_VIEW);
 }
 
 void SessionView::gridTransitionToViewForClip(Clip* clip) {
@@ -3706,9 +3721,9 @@ void SessionView::gridTransitionToViewForClip(Clip* clip) {
 
 	currentUIMode = UI_MODE_EXPLODE_ANIMATION;
 
-	auto clipX = std::clamp<int32_t>(
-	    gridXFromTrack(gridTrackIndexFromTrack(currentSong->currentClip->output, gridTrackCount())), 0, kDisplayWidth);
-	auto clipY = std::clamp<int32_t>(gridYFromSection(currentSong->currentClip->section), 0, kDisplayHeight);
+	auto clipX = std::clamp<int32_t>(gridXFromTrack(gridTrackIndexFromTrack(getCurrentOutput(), gridTrackCount())), 0,
+	                                 kDisplayWidth);
+	auto clipY = std::clamp<int32_t>(gridYFromSection(getCurrentClip()->section), 0, kDisplayHeight);
 
 	if (clip->type == CLIP_TYPE_AUDIO) {
 		waveformRenderer.collapseAnimationToWhichRow = clipY;
@@ -3764,6 +3779,9 @@ void SessionView::gridTransitionToViewForClip(Clip* clip) {
 	}
 
 	PadLEDs::sendOutSidebarColours(); // They'll have been cleared by the first explode render
+
+	// Hook point for specificMidiDevice
+	iterateAndCallSpecificDeviceHook(MIDIDeviceUSBHosted::Hook::HOOK_ON_TRANSITION_TO_CLIP_VIEW);
 }
 
 const uint32_t SessionView::gridTrackCount() {

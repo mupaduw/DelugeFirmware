@@ -650,7 +650,7 @@ void Clip::writeDataToFile(Song* song) {
 
 	//storageManager.writeTag("activeModFunction", modKnobMode);
 
-	if (currentSong->currentClip == this) {
+	if (getCurrentClip() == this) {
 		if (getRootUI()->toClipMinder()) {
 			storageManager.writeAttribute("beingEdited", "1");
 		}
@@ -802,7 +802,7 @@ void Clip::posReachedEnd(ModelStackWithTimelineCounter* modelStack) {
 			// But, don't do this if this Clips still would get deleted as an "abandoned overdub" (meaning it has no notes), cos if that happened,
 			// we definitely don't want to have a consequence - pointer pointing to it!
 			if (true || type != CLIP_TYPE_AUDIO) {
-				Debug::println("getting new action");
+				D_PRINTLN("getting new action");
 				Action* action = actionLogger.getNewAction(ACTION_RECORD, ACTION_ADDITION_ALLOWED);
 				if (action) {
 					action->recordClipLengthChange(this, oldLength);

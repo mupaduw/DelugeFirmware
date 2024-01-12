@@ -27,6 +27,7 @@
 #define VENDOR_ID_DIN 2
 #define VENDOR_ID_UPSTREAM_USB2 3
 #define VENDOR_ID_UPSTREAM_USB3 4
+#define VENDOR_ID_LOOPBACK 5
 
 #define MIDI_DIRECTION_INPUT_TO_DELUGE 0
 #define MIDI_DIRECTION_OUTPUT_FROM_DELUGE 1
@@ -152,15 +153,70 @@ public:
 	uint8_t portNumber;
 };
 
-class MIDIDeviceUSBHosted final : public MIDIDeviceUSB {
+class MIDIDeviceUSBHosted : public MIDIDeviceUSB {
 public:
 	MIDIDeviceUSBHosted() {}
 	void writeReferenceAttributesToFile();
 	void writeToFlash(uint8_t* memory);
 	char const* getDisplayName();
 
+	// Add new hooks to the below list.
+
+	// Gets called once for each freshly connected hosted device.
+	virtual void hookOnConnected(){};
+
+	// Gets called when something happens that changes the root note
+	virtual void hookOnChangeRootNote(){};
+
+	// Gets called when something happens that changes the scale/mode
+	virtual void hookOnChangeScale(){};
+
+	// Gets called when entering Scale Mode in a clip
+	virtual void hookOnEnterScaleMode(){};
+
+	// Gets called when exiting Scale Mode in a clip
+	virtual void hookOnExitScaleMode(){};
+
+	// Gets called when learning/unlearning a midi device to a clip
+	virtual void hookOnMIDILearn(){};
+
+	// Gets called when recalculating colour in clip mode
+	virtual void hookOnRecalculateColour(){};
+
+	// Gets called when transitioning to ArrangerView
+	virtual void hookOnTransitionToArrangerView(){};
+
+	// Gets called when transitioning to ClipView
+	virtual void hookOnTransitionToClipView(){};
+
+	// Gets called when transitioning to SessionView
+	virtual void hookOnTransitionToSessionView(){};
+
+	// Gets called when hosted device info is saved to XML (usually after changing settings)
+	virtual void hookOnWriteHostedDeviceToFile(){};
+
+	// Add an entry to this enum if adding new virtual hook functions above
+	enum class Hook {
+		HOOK_ON_CONNECTED = 0,
+		HOOK_ON_CHANGE_ROOT_NOTE,
+		HOOK_ON_CHANGE_SCALE,
+		HOOK_ON_ENTER_SCALE_MODE,
+		HOOK_ON_EXIT_SCALE_MODE,
+		HOOK_ON_MIDI_LEARN,
+		HOOK_ON_RECALCULATE_COLOUR,
+		HOOK_ON_TRANSITION_TO_ARRANGER_VIEW,
+		HOOK_ON_TRANSITION_TO_CLIP_VIEW,
+		HOOK_ON_TRANSITION_TO_SESSION_VIEW,
+		HOOK_ON_WRITE_HOSTED_DEVICE_TO_FILE
+	};
+
+	// Ensure to add a case to this function in midi_device.cpp when adding new hooks
+	void callHook(Hook hook);
+
 	uint16_t vendorId;
 	uint16_t productId;
+
+	bool freshly_connected = true; // Used to trigger hookOnConnected from the input loop
 
 	String name;
 };
@@ -178,6 +234,17 @@ public:
 	MIDIDeviceDINPorts() {
 		connectionFlags = 1; // DIN ports are always connected
 	}
+	void writeReferenceAttributesToFile();
+	void writeToFlash(uint8_t* memory);
+	char const* getDisplayName();
+	void sendMessage(uint8_t statusType, uint8_t channel, uint8_t data1, uint8_t data2);
+	void sendSysex(uint8_t* data, int32_t len) override;
+	int32_t sendBufferSpace() override;
+};
+
+class MIDIDeviceLoopback final : public MIDIDevice {
+public:
+	MIDIDeviceLoopback() { connectionFlags = 1; }
 	void writeReferenceAttributesToFile();
 	void writeToFlash(uint8_t* memory);
 	char const* getDisplayName();

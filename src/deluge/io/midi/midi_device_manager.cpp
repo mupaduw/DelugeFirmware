@@ -20,6 +20,7 @@
 #include "gui/menu_item/mpe/zone_num_member_channels.h"
 #include "gui/ui/sound_editor.h"
 #include "hid/display/display.h"
+#include "io/midi/device_specific/specific_midi_device.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_engine.h"
 #include "memory/general_memory_allocator.h"
@@ -60,6 +61,7 @@ MIDIDeviceUSBUpstream upstreamUSBMIDIDevice_port1{0};
 MIDIDeviceUSBUpstream upstreamUSBMIDIDevice_port2{1};
 MIDIDeviceUSBUpstream upstreamUSBMIDIDevice_port3{2};
 MIDIDeviceDINPorts dinMIDIPorts{};
+MIDIDeviceLoopback loopbackMidi{};
 
 uint8_t lowestLastMemberChannelOfLowerZoneOnConnectedOutput = 15;
 uint8_t highestLastMemberChannelOfUpperZoneOnConnectedOutput = 0;
@@ -75,6 +77,12 @@ void slowRoutine() {
 	for (int32_t d = 0; d < hostedMIDIDevices.getNumElements(); d++) {
 		MIDIDeviceUSBHosted* device = (MIDIDeviceUSBHosted*)hostedMIDIDevices.getElement(d);
 		device->sendMCMsNowIfNeeded();
+
+		// This routine placed here because for whatever reason we can't send sysex from hostedDeviceConfigured
+		if (device->freshly_connected) {
+			device->hookOnConnected();
+			device->freshly_connected = false; // Must be set to false here or the hook will run forever
+		}
 	}
 }
 
@@ -107,7 +115,7 @@ MIDIDeviceUSBHosted* getOrCreateHostedMIDIDeviceFromDetails(String* name, uint16
 
 		// If we'd already seen it before...
 		if (foundExact) {
-			MIDIDeviceUSBHosted* device = (MIDIDeviceUSBHosted*)hostedMIDIDevices.getElement(i);
+			MIDIDeviceUSBHosted* device = recastSpecificMidiDevice(hostedMIDIDevices.getElement(i));
 
 			// Update vendor and product id, if we have those
 			if (vendorId) {
@@ -121,7 +129,7 @@ MIDIDeviceUSBHosted* getOrCreateHostedMIDIDeviceFromDetails(String* name, uint16
 
 	// Ok, try searching by vendor / product id
 	for (int32_t i = 0; i < hostedMIDIDevices.getNumElements(); i++) {
-		MIDIDeviceUSBHosted* candidate = (MIDIDeviceUSBHosted*)hostedMIDIDevices.getElement(i);
+		MIDIDeviceUSBHosted* candidate = recastSpecificMidiDevice(hostedMIDIDevices.getElement(i));
 
 		if (candidate->vendorId == vendorId && candidate->productId == productId) {
 			// Update its name - if we got one and it's different
@@ -137,12 +145,28 @@ MIDIDeviceUSBHosted* getOrCreateHostedMIDIDeviceFromDetails(String* name, uint16
 		return NULL;
 	}
 
-	void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(MIDIDeviceUSBHosted));
-	if (!memory) {
-		return NULL;
+	MIDIDeviceUSBHosted* device = NULL;
+
+	SpecificMidiDeviceType devType = getSpecificMidiDeviceType(vendorId, productId);
+	if (devType == SpecificMidiDeviceType::LUMI_KEYS) {
+		void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(MIDIDeviceLumiKeys));
+		if (!memory) {
+			return NULL;
+		}
+
+		MIDIDeviceLumiKeys* instDevice = new (memory) MIDIDeviceLumiKeys();
+		device = instDevice;
+	}
+	else {
+		void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(MIDIDeviceUSBHosted));
+		if (!memory) {
+			return NULL;
+		}
+
+		MIDIDeviceUSBHosted* instDevice = new (memory) MIDIDeviceUSBHosted();
+		device = instDevice;
 	}
 
-	MIDIDeviceUSBHosted* device = new (memory) MIDIDeviceUSBHosted();
 	if (gotAName) {
 		device->name.set(name);
 	}
@@ -219,9 +243,12 @@ extern "C" void hostedDeviceConfigured(int32_t ip, int32_t midiDeviceNum) {
 
 	connectedDevice->sq = 0;
 	connectedDevice->canHaveMIDISent = (bool)strcmp(device->name.get(), "Synthstrom MIDI Foot Controller");
+	connectedDevice->canHaveMIDISent = (bool)strcmp(device->name.get(), "LUMI Keys BLOCK");
 
 	device->connectedNow(midiDeviceNum);
 	recountSmallestMPEZones(); // Must be called after setting device->connectionFlags
+
+	device->freshly_connected = true; // Used to trigger hookOnConnected from the input loop
 
 	if (display->haveOLED()) {
 		String text;
@@ -315,7 +342,10 @@ MIDIDevice* readDeviceReferenceFromFile() {
 		}
 		else if (!strcmp(tagName, "port")) {
 			char const* port = storageManager.readTagOrAttributeValue();
-			if (!strcmp(port, "upstreamUSB")) {
+			if (!strcmp(port, "loopbackMidi")) {
+				device = &loopbackMidi;
+			}
+			else if (!strcmp(port, "upstreamUSB")) {
 				device = &upstreamUSBMIDIDevice_port1;
 			}
 			else if (!strcmp(port, "upstreamUSB2")) {
@@ -362,6 +392,9 @@ void readDeviceReferenceFromFlash(GlobalMIDICommand whichCommand, uint8_t const*
 	else if (vendorId == VENDOR_ID_UPSTREAM_USB3) {
 		device = &upstreamUSBMIDIDevice_port3;
 	}
+	else if (vendorId == VENDOR_ID_LOOPBACK) {
+		device = &loopbackMidi;
+	}
 	else if (vendorId == VENDOR_ID_DIN) {
 		device = &dinMIDIPorts;
 	}
@@ -379,6 +412,44 @@ void writeDeviceReferenceToFlash(GlobalMIDICommand whichCommand, uint8_t* memory
 	}
 }
 
+void readMidiFollowDeviceReferenceFromFlash(MIDIFollowChannelType whichType, uint8_t const* memory) {
+
+	uint16_t vendorId = *(uint16_t const*)memory;
+
+	MIDIDevice* device;
+
+	if (vendorId == VENDOR_ID_NONE) {
+		device = NULL;
+	}
+	else if (vendorId == VENDOR_ID_UPSTREAM_USB) {
+		device = &upstreamUSBMIDIDevice_port1;
+	}
+	else if (vendorId == VENDOR_ID_UPSTREAM_USB2) {
+		device = &upstreamUSBMIDIDevice_port2;
+	}
+	else if (vendorId == VENDOR_ID_UPSTREAM_USB3) {
+		device = &upstreamUSBMIDIDevice_port3;
+	}
+	else if (vendorId == VENDOR_ID_LOOPBACK) {
+		device = &loopbackMidi;
+	}
+	else if (vendorId == VENDOR_ID_DIN) {
+		device = &dinMIDIPorts;
+	}
+	else {
+		uint16_t productId = *(uint16_t const*)(memory + 2);
+		device = getOrCreateHostedMIDIDeviceFromDetails(NULL, vendorId, productId);
+	}
+
+	midiEngine.midiFollowChannelType[util::to_underlying(whichType)].device = device;
+}
+
+void writeMidiFollowDeviceReferenceToFlash(MIDIFollowChannelType whichType, uint8_t* memory) {
+	if (midiEngine.midiFollowChannelType[util::to_underlying(whichType)].device) {
+		midiEngine.midiFollowChannelType[util::to_underlying(whichType)].device->writeToFlash(memory);
+	}
+}
+
 void writeDevicesToFile() {
 	if (!anyChangesToSave) {
 		return;
@@ -393,6 +464,9 @@ void writeDevicesToFile() {
 		goto worthIt;
 	}
 	if (upstreamUSBMIDIDevice_port2.worthWritingToFile()) {
+		goto worthIt;
+	}
+	if (loopbackMidi.worthWritingToFile()) {
 		goto worthIt;
 	}
 
@@ -413,6 +487,8 @@ worthIt:
 		return;
 	}
 
+	MIDIDeviceUSBHosted* specificMIDIDevice = NULL;
+
 	storageManager.writeOpeningTagBeginning("midiDevices");
 	storageManager.writeFirmwareVersion();
 	storageManager.writeEarliestCompatibleFirmwareVersion("4.0.0");
@@ -427,17 +503,27 @@ worthIt:
 	if (upstreamUSBMIDIDevice_port2.worthWritingToFile()) {
 		upstreamUSBMIDIDevice_port2.writeToFile("upstreamUSBDevice2");
 	}
+	if (loopbackMidi.worthWritingToFile()) {
+		loopbackMidi.writeToFile("loopbackMidi");
+	}
 
 	for (int32_t d = 0; d < hostedMIDIDevices.getNumElements(); d++) {
 		MIDIDeviceUSBHosted* device = (MIDIDeviceUSBHosted*)hostedMIDIDevices.getElement(d);
 		if (device->worthWritingToFile()) {
 			device->writeToFile("hostedUSBDevice");
 		}
+		// Stow this for the hook  point later
+		specificMIDIDevice = recastSpecificMidiDevice(device);
 	}
 
 	storageManager.writeClosingTag("midiDevices");
 
 	storageManager.closeFileAfterWriting();
+
+	// Hook point for Hosted USB MIDI Device
+	if (specificMIDIDevice != NULL) {
+		specificMIDIDevice->hookOnWriteHostedDeviceToFile();
+	}
 }
 
 bool successfullyReadDevicesFromFile = false; // We'll only do this one time
@@ -471,6 +557,9 @@ void readDevicesFromFile() {
 		}
 		else if (!strcmp(tagName, "upstreamUSBDevice3")) {
 			upstreamUSBMIDIDevice_port3.readFromFile();
+		}
+		else if (!strcmp(tagName, "loopbackMidi")) {
+			loopbackMidi.readFromFile();
 		}
 		else if (!strcmp(tagName, "hostedUSBDevice")) {
 			readAHostedDeviceFromFile();
@@ -544,6 +633,9 @@ checkDevice:
 
 		storageManager.exitTag();
 	}
+
+	// Hook point!
+	if (device) {}
 }
 
 } // namespace MIDIDeviceManager

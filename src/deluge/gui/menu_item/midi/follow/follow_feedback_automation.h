@@ -15,15 +15,29 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "gui/menu_item/toggle.h"
+#include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
+#include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
-#include "playback/playback_handler.h"
+#include "io/midi/midi_engine.h"
+#include "util/misc.h"
 
-namespace deluge::gui::menu_item::record {
-class CountIn final : public Toggle {
+namespace deluge::gui::menu_item::midi {
+class FollowFeedbackAutomation final : public Selection {
 public:
-	using Toggle::Toggle;
-	void readCurrentValue() override { this->setValue(playbackHandler.countInEnabled); }
-	void writeCurrentValue() override { playbackHandler.countInEnabled = this->getValue(); }
+	using Selection::Selection;
+	void readCurrentValue() override { this->setValue(midiEngine.midiFollowFeedbackAutomation); }
+	void writeCurrentValue() override {
+		midiEngine.midiFollowFeedbackAutomation = this->getValue<MIDIFollowFeedbackAutomationMode>();
+	}
+	std::vector<std::string_view> getOptions() override {
+		using enum l10n::String;
+		return {
+		    l10n::getView(STRING_FOR_DISABLED),
+		    l10n::getView(STRING_FOR_LOW),
+		    l10n::getView(STRING_FOR_MEDIUM),
+		    l10n::getView(STRING_FOR_HIGH),
+		};
+	}
 };
-} // namespace deluge::gui::menu_item::record
+} // namespace deluge::gui::menu_item::midi
