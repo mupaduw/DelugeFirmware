@@ -1,23 +1,10 @@
 # Community Features
 ## 1. Introduction
 
-### Audio Clip Timestretch control
-
-([#54]) usefule for less beat-centric music e.g. ambient, this allows user to enable/disable audio time-stretching, either:
- - for all audio clips in the song => with **<shift>+SYNC-SCALING** button
- - for an individual clip => with either **clip/sample/stretch** menu, or **<shift>+Sample1/Mode** shortcut)
-
-See also [Make time stretching optional for AudioClips](https://github.com/SynthstromAudible/DelugeFirmware/issues/53)
-
-#### Song XML changes
-Two XML attributes are added to SONG XML files for  </song > and </audioClip> elements (timeStretchingEnabled (bool) . These attributes will be ignored by earlier firmware
-The default time-stretching setting is **on** to remain consistent with earlier versions.
 
 <h1 id="runtime-features">Runtime settings aka Community Features Menu</h1>
 
 In the main menu of the deluge (Shift + Pressing selection knob) there is an entry called "Community Features" that allows changing behavior and turning features on and off in comprison to the original and previous community firmwares. Here is a list of all options and what they do:
-
-
 
 Every time a Pull Request improves the community firmware it shall be noted down what it accomplishes and how it is used.
 
@@ -157,6 +144,14 @@ Here is a list of features that have been added to the firmware as a list, group
 			- Adjustable default Param assigned to each FX column via "Param" editing mode or PerformanceView.xml
 			- Adjustable default "held pad" settings for each FX column via Performance View or PerformanceView.xml (simply change a held pad in Performance View and save the layout to save the layout with the held pads).
 		- Load defaults from PerformanceView.xml file
+
+#### 4.1.N - Time-stretching is optional
+
+ - ([#54]) In Song View, pressing `SHIFT+SYNC-SCALING` buttons toggles time-stretching on or off for all audio clips in the song.
+   - The setting is saved into the song XML file.
+   - The default setting is **on** to remain consistent with earlier versions.
+ 
+ - This feature can be useful for less beat-centric music e.g. ambient, film production. See also Audio clip time-stretching, which provides control over individual clips.
 
 ### 4.2 - Clip View - General Features (Instrument and Audio Clips)
 
@@ -341,6 +336,15 @@ Synchronization modes accessible through `SYNC` shortcuts for `ARP`, `LFO1`, `DE
 #### 4.7.1 - Shift Clip
 
  - ([#141]) Holding `▼︎▲︎` down while turning `◀︎▶︎` will shift the waveform of an Audio clip, similar to Instrument clips.
+
+
+#### 4.7.n - time-stretching is optional
+
+([#54]) In any audio clip, toggle timestrtching for that clip with either:
+  -  the **clip/sample/stretch** menu,
+  -  **<shift>+Sample1/Mode** shortcut
+
+See also [Make time stretching optional for AudioClips](https://github.com/SynthstromAudible/DelugeFirmware/issues/53)
 
 ## 5. Community Features Menu (aka Runtime Settings)
 

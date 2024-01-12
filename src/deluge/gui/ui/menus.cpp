@@ -649,7 +649,7 @@ UnpatchedParam globalStutterRateMenu{
 // AudioClip stuff ---------------------------------------------------------------------------
 
 // Sample Menu
-audio_clip::TimeStretch audioClipTimeStretchMenu{STRING_FOR_COMMUNITY_FEATURE_AUDIO_CLIP_TIME_STRETCH};
+audio_clip::TimeStretch audioClipTimeStretchMenu{STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_OPTIONAL};
 audio_clip::Reverse audioClipReverseMenu{STRING_FOR_REVERSE};
 audio_clip::SampleMarkerEditor audioClipSampleMarkerEditorMenuStart{EMPTY_STRING, MarkerType::START};
 audio_clip::SampleMarkerEditor audioClipSampleMarkerEditorMenuEnd{STRING_FOR_WAVEFORM, MarkerType::END};

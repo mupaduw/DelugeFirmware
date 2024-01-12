@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+// #include "gui/menu_item/toggle.h"
 #include "gui/menu_item/selection.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/views/audio_clip_view.h"
@@ -24,21 +25,23 @@
 #include "model/song/song.h"
 #include "playback/playback_handler.h"
 
-namespace menu_item::audio_clip {
-class TimeStretch final : public Selection {
-public:
-	using Selection::Selection;
+namespace deluge::gui::menu_item::audio_clip {
 
-	void readCurrentValue() {
-		soundEditor.currentValue = ((AudioClip*)currentSong->currentClip)->sampleControls.timeStretchEnabled;
+class TimeStretch final : public Toggle {
+public:
+	using Toggle::Toggle;
+
+	void readCurrentValue() override {
+		this->setValue((static_cast<AudioClip*>(currentSong->currentClip))->sampleControls.timeStretchEnabled);
 	}
-	void writeCurrentValue() {
-		AudioClip* clip = (AudioClip*)currentSong->currentClip;
+
+	void writeCurrentValue() override {
+		auto* clip = static_cast<AudioClip*>(currentSong->currentClip);
 		bool active = (playbackHandler.isEitherClockActive() && currentSong->isClipActive(clip) && clip->voiceSample);
 
 		clip->unassignVoiceSample();
 
-		clip->sampleControls.timeStretchEnabled = soundEditor.currentValue;
+		clip->sampleControls.timeStretchEnabled = this->getValue(); //soundEditor.currentValue;
 
 		if (clip->sampleHolder.audioFile) {
 
@@ -56,4 +59,4 @@ public:
 		}
 	}
 };
-} // namespace menu_item::audio_clip
+} // namespace deluge::gui::menu_item::audio_clip

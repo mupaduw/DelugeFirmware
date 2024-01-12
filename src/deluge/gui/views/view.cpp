@@ -320,16 +320,18 @@ doEndMidiLearnPressSession:
 
 	else if (b == SYNC_SCALING) {
 
-		// <shift><Sync-scaling> -> change song time-stretching
+		// <shift><Sync-scaling> -> toggle song time-stretching
 		if (on && Buttons::isShiftButtonPressed()) {
 			if (on) {
 				currentSong->timeStretchEnabled = !currentSong->timeStretchEnabled;
 				// show the user the new value with a PopUp message
 				if (currentSong->timeStretchEnabled) {
-					numericDriver.displayPopup(HAVE_OLED ? "Time-stretch: On" : "TSON", 2);
+					display->displayPopup(
+					    deluge::l10n::get(deluge::l10n::String::STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_ON), 2);
 				}
 				else {
-					numericDriver.displayPopup(HAVE_OLED ? "Time-stretch: Off" : "TSOF", 2);
+					display->displayPopup(
+					    deluge::l10n::get(deluge::l10n::String::STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_OFF), 2);
 				}
 			}
 		}
