@@ -320,8 +320,9 @@ doEndMidiLearnPressSession:
 		}
 	}
 
-	// Sync-scaling button - can be repurposed as Fill Mode in community settings
-	else if (b == SYNC_SCALING) {
+	// unshifted Sync-scaling button - can be repurposed as Fill Mode in community settings
+	else if (b == SYNC_SCALING && !Buttons::isShiftButtonPressed()) {
+
 		if ((runtimeFeatureSettings.get(RuntimeFeatureSettingType::SyncScalingAction)
 		     == RuntimeFeatureStateSyncScalingAction::Fill)) {
 			currentSong->changeFillMode(on);
@@ -367,6 +368,30 @@ cant:
 
 			playbackHandler.resyncInternalTicksToInputTicks(currentSong);
 			setTimeBaseScaleLedState();
+		}
+
+	}
+
+	// <shift><Sync-scaling> -> toggle song time-stretching
+	else if (b == SYNC_SCALING && Buttons::isShiftButtonPressed()) {
+		if (on && Buttons::isShiftButtonPressed()) {
+			if (on) {
+				currentSong->timeStretchEnabled = !currentSong->timeStretchEnabled;
+				// show the user the new value with a PopUp message
+				if (currentSong->timeStretchEnabled) {
+					display->displayPopup(
+					    deluge::l10n::get(deluge::l10n::String::STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_ON), 2);
+				}
+				else {
+					display->displayPopup(
+					    deluge::l10n::get(deluge::l10n::String::STRING_FOR_COMMUNITY_FEATURE_TIME_STRETCH_OFF), 2);
+				}
+			}
+
+			// actionLogger.deleteAllLogs(); // Can't undo past this.
+
+			// playbackHandler.resyncInternalTicksToInputTicks(currentSong);
+			// setTimeBaseScaleLedState();
 		}
 	}
 
