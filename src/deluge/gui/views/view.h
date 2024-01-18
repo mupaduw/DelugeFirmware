@@ -81,9 +81,8 @@ public:
 	void navigateThroughPresetsForInstrumentClip(int32_t offset, ModelStackWithTimelineCounter* modelStack,
 	                                             bool doBlink = false);
 	void navigateThroughAudioOutputsForAudioClip(int32_t offset, AudioClip* clip, bool doBlink = false);
-	bool changeInstrumentType(InstrumentType newInstrumentType, ModelStackWithTimelineCounter* modelStack,
-	                          bool doBlink = false);
-	void drawOutputNameFromDetails(InstrumentType instrumentType, int32_t slot, int32_t subSlot, char const* name,
+	bool changeOutputType(OutputType newOutputType, ModelStackWithTimelineCounter* modelStack, bool doBlink = false);
+	void drawOutputNameFromDetails(OutputType outputType, int32_t slot, int32_t subSlot, char const* name,
 	                               bool editedByUser, bool doBlink, Clip* clip = NULL);
 	void endMIDILearn();
 	void getClipMuteSquareColour(Clip* clip, uint8_t thisColour[], bool dimInactivePads = false,
@@ -125,6 +124,7 @@ public:
 
 	bool isParamPan(Param::Kind kind, int32_t paramID);
 	bool isParamPitch(Param::Kind kind, int32_t paramID);
+	bool isParamStutter(Param::Kind kind, int32_t paramID);
 	int32_t calculateKnobPosForDisplay(Param::Kind kind, int32_t paramID, int32_t knobPos);
 	void displayModEncoderValuePopup(Param::Kind kind, int32_t paramID, int32_t newKnobPos);
 	bool isParamQuantizedStutter(Param::Kind kind, int32_t paramID);

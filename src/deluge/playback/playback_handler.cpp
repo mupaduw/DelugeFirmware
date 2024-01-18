@@ -60,6 +60,7 @@
 #include "storage/audio/audio_file_manager.h"
 #include "storage/flash_storage.h"
 #include "storage/storage_manager.h"
+#include "util/cfunctions.h"
 #include "util/functions.h"
 #include <math.h>
 #include <new>
@@ -67,7 +68,6 @@
 extern "C" {
 #include "RZA1/gpio/gpio.h"
 #include "RZA1/uart/sio_char.h"
-#include "util/cfunctions.h"
 }
 
 PlaybackHandler playbackHandler{};
@@ -2531,24 +2531,10 @@ void PlaybackHandler::programChangeReceived(MIDIDevice* fromDevice, int32_t chan
 	}
 	else {
 		// we build ontop of the CC hack
-		tryGlobalMIDICommands(fromDevice, channel + IS_A_PC, program);
+		offerNoteToLearnedThings(fromDevice, true, channel + IS_A_PC, program);
 	}
 }
-
-void PlaybackHandler::noteMessageReceived(MIDIDevice* fromDevice, bool on, int32_t channel, int32_t note,
-                                          int32_t velocity, bool* doingMidiThru) {
-	// If user assigning/learning MIDI commands, do that
-	if (currentUIMode == UI_MODE_MIDI_LEARN && on) {
-		// Checks velocity to let note-offs pass through,
-		// so no risk of stuck note if they pressed learn while holding a note
-		int32_t channelOrZone = fromDevice->ports[MIDI_DIRECTION_INPUT_TO_DELUGE].channelToZone(channel);
-
-		if (getCurrentUI()->noteOnReceivedForMidiLearn(fromDevice, channelOrZone, note, velocity)) {}
-		else {
-			view.noteOnReceivedForMidiLearn(fromDevice, channelOrZone, note, velocity);
-		}
-		return;
-	}
+bool PlaybackHandler::offerNoteToLearnedThings(MIDIDevice* fromDevice, bool on, int32_t channel, int32_t note) {
 
 	// Otherwise, enact the relevant MIDI command, if it can be found
 
@@ -2595,7 +2581,27 @@ void PlaybackHandler::noteMessageReceived(MIDIDevice* fromDevice, bool on, int32
 		}
 	}
 
-	if (foundAnything) {
+	return foundAnything;
+}
+
+void PlaybackHandler::noteMessageReceived(MIDIDevice* fromDevice, bool on, int32_t channel, int32_t note,
+                                          int32_t velocity, bool* doingMidiThru) {
+	// If user assigning/learning MIDI commands, do that
+	if (currentUIMode == UI_MODE_MIDI_LEARN && on) {
+		// Checks velocity to let note-offs pass through,
+		// so no risk of stuck note if they pressed learn while holding a note
+		int32_t channelOrZone = fromDevice->ports[MIDI_DIRECTION_INPUT_TO_DELUGE].channelToZone(channel);
+
+		if (getCurrentUI()->noteOnReceivedForMidiLearn(fromDevice, channelOrZone, note, velocity)) {}
+		else {
+			view.noteOnReceivedForMidiLearn(fromDevice, channelOrZone, note, velocity);
+		}
+		return;
+	}
+
+	// Otherwise, enact the relevant MIDI command, if it can be found
+
+	if (offerNoteToLearnedThings(fromDevice, on, channel, note)) {
 		return;
 	}
 
@@ -2754,39 +2760,29 @@ void PlaybackHandler::pitchBendReceived(MIDIDevice* fromDevice, uint8_t channel,
 
 void PlaybackHandler::midiCCReceived(MIDIDevice* fromDevice, uint8_t channel, uint8_t ccNumber, uint8_t value,
                                      bool* doingMidiThru) {
-
+	//true only if it's an MPE member channel, and therefore only used for per note expression
 	bool isMPE = fromDevice->ports[MIDI_DIRECTION_INPUT_TO_DELUGE].isChannelPartOfAnMPEZone(channel);
 
 	if (isMPE) {
 		fromDevice->defaultInputMPEValuesPerMIDIChannel[channel][1] = (value - 64) << 9;
 	}
 	else {
-
+		int32_t channelOrZone = fromDevice->ports[MIDI_DIRECTION_INPUT_TO_DELUGE].channelToZone(channel);
 		// If the SoundEditor is the active UI, give it first dibs on the message
 		if (getCurrentUI() == &soundEditor) {
-			if (soundEditor.midiCCReceived(fromDevice, channel, ccNumber, value)) {
+			if (soundEditor.midiCCReceived(fromDevice, channelOrZone, ccNumber, value)) {
 				return;
 			}
 		}
-
-		else {
-			if (currentUIMode == UI_MODE_MIDI_LEARN) {
-				view.ccReceivedForMIDILearn(fromDevice, channel, ccNumber, value);
-				return;
-			}
+		// then midi learn is second priority
+		else if (currentUIMode == UI_MODE_MIDI_LEARN) {
+			view.ccReceivedForMIDILearn(fromDevice, channelOrZone, ccNumber, value);
+			// we don't want this learn to immediately trigger the thing it was learnt to so just return
+			return;
 		}
-
-		int32_t channelOrZone = fromDevice->ports[MIDI_DIRECTION_INPUT_TO_DELUGE].channelToZone(channel);
-
-		if (value > 0) {
-			if (tryGlobalMIDICommands(fromDevice, channelOrZone + IS_A_CC, ccNumber)) {
-				return;
-			}
-		}
-		else {
-			if (tryGlobalMIDICommandsOff(fromDevice, channelOrZone + IS_A_CC, ccNumber)) {
-				return;
-			}
+		// check if it was learned to on/off commands (loop, drums, section launch etc.)
+		else if (offerNoteToLearnedThings(fromDevice, value > 0, channelOrZone + IS_A_CC, ccNumber)) {
+			return;
 		}
 	}
 

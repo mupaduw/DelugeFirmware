@@ -45,13 +45,10 @@
 #include "processing/sound/sound.h"
 #include "processing/sound/sound_drum.h"
 #include "storage/multi_range/multisample_range.h"
+#include "util/cfunctions.h"
 #include "util/functions.h"
 #include <new>
 #include <string.h>
-
-extern "C" {
-#include "util/cfunctions.h"
-}
 
 Slicer slicer{};
 
@@ -742,7 +739,7 @@ ramError2:
 	ModelStackWithTimelineCounter* modelStack = (ModelStackWithTimelineCounter*)modelStackMemory;
 	getCurrentInstrumentClip()->assignDrumsToNoteRows(modelStack);
 
-	((Instrument*)getCurrentInstrument())->beenEdited();
+	getCurrentInstrument()->beenEdited();
 
 	// New NoteRows have probably been created, whose colours haven't been grabbed yet.
 	instrumentClipView.recalculateColours();
