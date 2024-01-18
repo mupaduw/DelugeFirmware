@@ -371,7 +371,6 @@ cant:
 			playbackHandler.resyncInternalTicksToInputTicks(currentSong);
 			setTimeBaseScaleLedState();
 		}
-
 	}
 
 	// <shift><Sync-scaling> -> toggle song time-stretching
